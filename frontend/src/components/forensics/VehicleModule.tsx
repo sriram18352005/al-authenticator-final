@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
     Loader2, Info, ChevronDown, ChevronUp, Server, Search, ChevronRight
 } from "lucide-react";
@@ -41,6 +42,7 @@ interface AuditEntry {
     extractionMethod: string;
     invalidReason: string | null;
     resultHash: string;
+    imagePreview?: string;
 }
 
 interface BatchRow {
@@ -151,7 +153,25 @@ async function detectQRCode(file: File): Promise<{
 async function generateThumbnail(file: File): Promise<string | null> {
     try {
         if (file.type.startsWith('image/')) {
-            return URL.createObjectURL(file);
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        // Downscale for performance/storage
+                        const MAX_WIDTH = 400;
+                        const scale = Math.min(1, MAX_WIDTH / img.width);
+                        canvas.width = img.width * scale;
+                        canvas.height = img.height * scale;
+                        const ctx = canvas.getContext('2d')!;
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.6)); // Lower quality for localStorage efficiency
+                    };
+                    img.src = e.target?.result as string;
+                };
+                reader.readAsDataURL(file);
+            });
         }
         if (file.type === 'application/pdf') {
             const pdfjsLib = await import('pdfjs-dist');
@@ -159,15 +179,30 @@ async function generateThumbnail(file: File): Promise<string | null> {
             const ab = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
             const page = await pdf.getPage(1);
-            const vp = page.getViewport({ scale: 0.3 });
+            
+            const pixelRatio = window.devicePixelRatio || 1;
+            const RENDER_SCALE = 2.5 * pixelRatio;
+            const vp = page.getViewport({ scale: RENDER_SCALE });
+            
             const canvas = document.createElement('canvas');
-            canvas.width = vp.width;
-            canvas.height = vp.height;
+            canvas.width = Math.floor(vp.width);
+            canvas.height = Math.floor(vp.height);
+            canvas.style.width = Math.floor(vp.width / pixelRatio) + 'px';
+            canvas.style.height = Math.floor(vp.height / pixelRatio) + 'px';
+            
             const ctx = canvas.getContext('2d')!;
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            await page.render({ canvasContext: ctx, viewport: vp }).promise;
-            return canvas.toDataURL('image/jpeg', 0.7);
+            
+            await page.render({ 
+                canvasContext: ctx, 
+                viewport: vp,
+                intent: 'print'
+            }).promise;
+            
+            return canvas.toDataURL('image/png', 1.0);
         }
         return null;
     } catch {
@@ -263,39 +298,6 @@ function printReport(rows: BatchRow[]) {
     setTimeout(() => printWindow.print(), 500);
 }
 
-function VINBreakdown({ vin }: { vin: string }) {
-    if (!vin || vin.length !== 17) return null;
-    const sections = [
-        { chars: vin.substring(0, 3), label: 'WMI', color: '#00c2cb', tip: 'Manufacturer' },
-        { chars: vin.substring(3, 8), label: 'VDS', color: '#0088ff', tip: 'Vehicle Type' },
-        { chars: vin.substring(8, 9), label: 'CHECK', color: '#ffab00', tip: 'Check Digit' },
-        { chars: vin.substring(9, 10), label: 'YEAR', color: '#9c27b0', tip: 'Model Year' },
-        { chars: vin.substring(10, 11), label: 'PLANT', color: '#ff6d00', tip: 'Assembly Plant' },
-        { chars: vin.substring(11, 17), label: 'SEQ', color: '#4a5568', tip: 'Serial Number' },
-    ];
-    return (
-        <div style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 8, fontWeight: 700, letterSpacing: '2px', color: '#2d3748', textTransform: 'uppercase', marginBottom: 8 }}>
-                VIN Structure Breakdown
-            </div>
-            <div style={{ display: 'flex', gap: 2, background: '#080c14', border: '1px solid #1e2535', borderRadius: 8, padding: 10, overflowX: 'auto' }}>
-                {sections.map((s, i) => (
-                    <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                        <div style={{ fontFamily: 'Courier New, monospace', fontSize: 14, fontWeight: 800, color: s.color, letterSpacing: 2, background: `${s.color}12`, border: `1px solid ${s.color}30`, borderRadius: 4, padding: '4px 6px', whiteSpace: 'nowrap' }}>
-                            {s.chars}
-                        </div>
-                        <div style={{ fontSize: 7, fontWeight: 700, letterSpacing: '1px', color: s.color, textTransform: 'uppercase', textAlign: 'center' }}>
-                            {s.label}
-                        </div>
-                        <div style={{ fontSize: 7, color: '#2d3748', textAlign: 'center', maxWidth: 52 }}>
-                            {s.tip}
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-}
 
 function FileTypeIcon({ fileName }: { fileName: string }) {
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
@@ -447,10 +449,12 @@ export function VehicleModule() {
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const cancelRef = useRef(false);
     const [singleThumbnail, setSingleThumbnail] = useState<string | null>(null);
+    const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [compareMode, setCompareMode] = useState(false);
     const [compareResult, setCompareResult] = useState<SingleResult | null>(null);
     const [compareThumbnail, setCompareThumbnail] = useState<string | null>(null);
+    const [zoom, setZoom] = useState(100);
     const compareFileRef = useRef<HTMLInputElement>(null);
 
     // Phase 4 States
@@ -498,6 +502,16 @@ export function VehicleModule() {
             position: 'right'
         },
     ];
+
+    // Lock body scroll when preview modal is open
+    useEffect(() => {
+        if (isPreviewModalOpen) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
+        }
+        return () => { document.body.style.overflow = ''; };
+    }, [isPreviewModalOpen]);
 
     function simpleHash(str: string): string {
         let hash = 0;
@@ -632,6 +646,7 @@ export function VehicleModule() {
         setUploadedFile({ name: file.name, size: `${(file.size / 1024).toFixed(1)} KB` });
         setSingleStatus('processing');
         setSingleResult(null);
+        setSingleThumbnail(null); // Clear previous
         setCheckpoints(INIT_CP);
 
         try {
@@ -686,6 +701,8 @@ export function VehicleModule() {
                 pagesScanned: data.pagesScanned, isVehicle: data.isVehicleDocument
             }]);
             // Persistent Audit Log (Single)
+            const auditThumb = await generateThumbnail(file);
+            setSingleThumbnail(auditThumb);
             const audit = JSON.parse(localStorage.getItem('verentis_audit') || '[]');
             const entry: AuditEntry = {
                 caseId: 'SINGLE-MODE',
@@ -697,12 +714,36 @@ export function VehicleModule() {
                 status: data.status,
                 extractionMethod: data.chassis?.source || 'OCR',
                 invalidReason: data.chassis?.rejection_reason || null,
-                resultHash: simpleHash(`${data.chassis?.value}${data.registration?.value}${data.status}`)
+                resultHash: simpleHash(`${data.chassis?.value}${data.registration?.value}${data.status}`),
+                imagePreview: auditThumb || undefined
             };
+            try {
             localStorage.setItem('verentis_audit', JSON.stringify([...audit, entry]));
+        } catch (e) {
+            console.warn("Storage full: could not save audit log", e);
+        }
 
             setSingleStatus('complete');
             showToast(`Analysis complete: ${data.status.toUpperCase()}`, data.status === 'valid' ? 'success' : 'error');
+
+            // Update Real-time Session Stats
+            setSessionStats(prev => {
+                const isVal = data.status === 'valid';
+                const isInv = data.status === 'invalid' || data.status === 'error';
+                const isPart = data.status === 'partial';
+                const conf = data.chassis?.confidence || 0;
+                
+                const newTotal = prev.total + 1;
+                const newAvg = Math.round(((prev.avgConf * prev.total) + conf) / newTotal);
+
+                return {
+                    total: newTotal,
+                    valid: prev.valid + (isVal ? 1 : 0),
+                    invalid: prev.invalid + (isInv ? 1 : 0),
+                    partial: prev.partial + (isPart ? 1 : 0),
+                    avgConf: newAvg
+                };
+            });
 
         } catch (err: any) {
             setSingleResult({
@@ -726,6 +767,7 @@ export function VehicleModule() {
         setExpandedRows(new Set());
         setTooltipRow(null);
         cancelRef.current = false;
+        setSessionStats({ total: 0, valid: 0, invalid: 0, partial: 0, avgConf: 0 });
 
         for (let i = 0; i < files.length; i++) {
             results.push({
@@ -754,6 +796,7 @@ export function VehicleModule() {
                     // QR detection failure must never crash the batch
                 }
 
+                const thumb = await generateThumbnail(file);
                 const row: BatchRow = {
                     index: i, fileName: file.name, fileSize: file.size, status: data.status, statusMessage: data.statusMessage,
                     chassis: data.chassis?.value || null, chassisSource: data.chassis?.source, chassisConfidence: data.chassis?.confidence || 0,
@@ -761,7 +804,8 @@ export function VehicleModule() {
                     chassisRejectionReason: data.chassis?.rejection_reason || null, registration: data.registration?.value || null,
                     regState: data.registration?.state, regSource: data.registration?.source, regConfidence: data.registration?.confidence || 0,
                     pagesScanned: data.pagesScanned, isVehicle: data.isVehicleDocument,
-                    qrResult
+                    qrResult,
+                    thumbnail: thumb
                 };
                 results[i] = row;
                 updateBatchRow(i, row);
@@ -770,20 +814,24 @@ export function VehicleModule() {
                 results[i] = row;
                 updateBatchRow(i, row);
             }
+
+            // Incremental Session Stats Update
+            const processedRows = results.filter(r => r.status !== 'pending');
+            const valid = processedRows.filter(r => r.status === 'valid').length;
+            const invalid = processedRows.filter(r => r.status === 'invalid' || r.status === 'error').length;
+            const partial = processedRows.filter(r => r.status === 'partial').length;
+            const avgConf = Math.round(
+                processedRows.filter(r => r.chassisConfidence)
+                    .map(r => r.chassisConfidence)
+                    .reduce((a, b) => a + b, 0) /
+                (processedRows.filter(r => r.chassisConfidence).length || 1)
+            );
+            setSessionStats({ total: processedRows.length, valid, invalid, partial, avgConf });
+
             await delay(300);
         }
         setBatchRows([...results]);
-        const finalRows = results.filter(r => r.status !== 'pending');
-        const valid = finalRows.filter(r => r.status === 'valid').length;
-        const invalid = finalRows.filter(r => r.status === 'invalid').length;
-        const partial = finalRows.filter(r => r.status === 'partial').length;
-        const avgConf = Math.round(
-            finalRows.filter(r => r.chassisConfidence)
-                .map(r => r.chassisConfidence)
-                .reduce((a, b) => a + b, 0) /
-            (finalRows.filter(r => r.chassisConfidence).length || 1)
-        );
-        setSessionStats({ total: finalRows.length, valid, invalid, partial, avgConf });
+
 
         saveAnalytics(results);
 
@@ -799,9 +847,14 @@ export function VehicleModule() {
             status: r.status,
             extractionMethod: r.chassisSource || 'OCR',
             invalidReason: r.chassisRejectionReason || null,
-            resultHash: simpleHash(`${r.chassis}${r.registration}${r.status}`)
+            resultHash: simpleHash(`${r.chassis}${r.registration}${r.status}`),
+            imagePreview: r.thumbnail || undefined
         }));
-        localStorage.setItem('verentis_audit', JSON.stringify([...audit, ...entries]));
+        try {
+            localStorage.setItem('verentis_audit', JSON.stringify([...audit, ...entries]));
+        } catch (e) {
+            console.warn("Storage full: could not save audit log", e);
+        }
 
         // Duplicate Detection
         const chassisMap: Record<string, string[]> = {};
@@ -1022,13 +1075,8 @@ export function VehicleModule() {
                     </svg>
                     <div className="vehicle-hero-text z-10">
                         <h1>Vehicle Forensics Engine</h1>
-                        <p>AI-powered chassis and registration detection for Indian vehicles</p>
-                        <div className="hero-badges">
-                            <span className="badge-teal">PaddleOCR</span>
-                            <span className="badge-teal">VIN Validation</span>
-                            <span className="badge-teal">17-State Detection</span>
-                            <span className="badge-green">Offline Mode</span>
-                        </div>
+                        <p>Next-Gen forensic analysis for chassis and registration detection for Indian vehicles</p>
+
                         <div style={{ display: 'flex', gap: 24, marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                             {[
                                 { label: 'Session Processed', value: sessionStats.total, color: '#e8ecf4' },
@@ -1178,45 +1226,59 @@ export function VehicleModule() {
                                                         <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M16 2L30 8V18Q30 26 16 30Q2 26 2 18V8Z" fill="rgba(255,171,0,0.15)" stroke="#ffab00" strokeWidth="1.5" /><path d="M16 10V18M16 22H16.01" stroke="#ffab00" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                                                     )}
                                                 </div>
-                                                <div>
+                                                <div style={{ flex: 1 }}>
                                                     <div className="verdict-title">{singleResult.status === 'valid' ? 'VALID DOCUMENT' : singleResult.status === 'invalid' ? 'INVALID / FAKE DOCUMENT' : singleResult.status === 'partial' ? 'PARTIAL RESULT' : 'NOT VEHICLE'}</div>
                                                     <div className="verdict-sub">{singleResult.statusMessage}</div>
                                                 </div>
+                                                <button
+                                                    onClick={() => {
+                                                        setZoom(100);
+                                                        setIsPreviewModalOpen(true);
+                                                    }}
+                                                    style={{
+                                                        display: 'flex', alignItems: 'center', gap: '6px',
+                                                        background: 'transparent',
+                                                        border: `1px solid ${singleResult.status === 'valid' ? '#00c853' : singleResult.status === 'invalid' ? '#ff1744' : '#ffab00'}`,
+                                                        color: singleResult.status === 'valid' ? '#00c853' : singleResult.status === 'invalid' ? '#ff1744' : '#ffab00',
+                                                        padding: '5px 10px', borderRadius: '6px',
+                                                        fontSize: '10px', fontWeight: 700, cursor: 'pointer',
+                                                        textTransform: 'uppercase', letterSpacing: '0.5px',
+                                                        marginLeft: 'auto'
+                                                    }}
+                                                >
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                                                    Preview Document
+                                                </button>
                                                 {singleResult.status === 'valid' && <div className="verdict-pulse" />}
                                             </div>
 
                                             {(singleResult.status !== 'skipped' && singleResult.status !== 'error') && (
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    <div className="data-card" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                                                        <div className="flex-1">
-                                                            <div className="data-card-label">CHASSIS / VIN</div>
-                                                            <div className={`data-card-value ${singleResult.chassis?.is_valid === false ? 'invalid-value' : ''}`}>{renderChassisValue(singleResult.chassis?.value || null)}</div>
-                                                            <div className="data-card-meta">
-                                                                {singleResult.chassis?.value && <span className="meta-badge">{(singleResult.chassis.value ? singleResult.chassis.value.length : 0)} chars</span>}
-                                                                {singleResult.chassis?.manufacturer && <span className="meta-badge manufacturer">{singleResult.chassis.manufacturer}</span>}
-                                                                {singleResult.chassis?.value && validateVINChecksum(singleResult.chassis.value) && (
-                                                                    <span className="meta-badge checksum-pass">CSUM VALIDATED ✓</span>
-                                                                )}
-                                                                {singleResult.chassis?.value && !validateVINChecksum(singleResult.chassis.value) && singleResult.chassis.value.length === 17 && (
-                                                                    <span className="meta-badge checksum-fail">CSUM INVALID ✗</span>
-                                                                )}
+                                                <>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                        <div className="data-card" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                                                            <div className="flex-1">
+                                                                <div className="data-card-label">CHASSIS / VIN</div>
+                                                                <div className={`data-card-value ${singleResult.chassis?.is_valid === false ? 'invalid-value' : ''}`}>{renderChassisValue(singleResult.chassis?.value || null)}</div>
+                                                                <div className="data-card-meta">
+                                                                    {singleResult.chassis?.value && <span className="meta-badge">{(singleResult.chassis.value ? singleResult.chassis.value.length : 0)} chars</span>}
+                                                                    {singleResult.chassis?.manufacturer && <span className="meta-badge manufacturer">{singleResult.chassis.manufacturer}</span>}
+                                                                </div>
+                                                                {singleResult.chassis?.is_valid === false && <div className="mt-3 text-[#ff1744] text-xs font-mono font-bold">REASON: {singleResult.chassis?.rejection_reason}</div>}
                                                             </div>
-                                                            {singleResult.chassis?.is_valid === false && <div className="mt-3 text-[#ff1744] text-xs font-mono font-bold">REASON: {singleResult.chassis?.rejection_reason}</div>}
-                                                            {singleResult.chassis?.value && <VINBreakdown vin={singleResult.chassis.value} />}
+                                                            {(singleResult.chassis?.confidence ?? 0) > 0 && <ConfidenceRing value={singleResult.chassis?.confidence ?? 0} label="CHASSIS" color={(singleResult.chassis?.confidence ?? 0) > 80 ? '#00c853' : (singleResult.chassis?.confidence ?? 0) > 50 ? '#ffab00' : '#ff1744'} />}
                                                         </div>
-                                                        {(singleResult.chassis?.confidence ?? 0) > 0 && <ConfidenceRing value={singleResult.chassis?.confidence ?? 0} label="CHASSIS" color={(singleResult.chassis?.confidence ?? 0) > 80 ? '#00c853' : (singleResult.chassis?.confidence ?? 0) > 50 ? '#ffab00' : '#ff1744'} />}
-                                                    </div>
-                                                    <div className="data-card" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                                                        <div className="flex-1">
-                                                            <div className="data-card-label">REGISTRATION</div>
-                                                            <div className="data-card-value">{renderRegValue(singleResult.registration?.value || null)}</div>
-                                                            <div className="data-card-meta">
-                                                                {singleResult.registration?.state && <span className="meta-badge state">{singleResult.registration.state}</span>}
+                                                        <div className="data-card" style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                                                            <div className="flex-1">
+                                                                <div className="data-card-label">REGISTRATION</div>
+                                                                <div className="data-card-value">{renderRegValue(singleResult.registration?.value || null)}</div>
+                                                                <div className="data-card-meta">
+                                                                    {singleResult.registration?.state && <span className="meta-badge state">{singleResult.registration.state}</span>}
+                                                                </div>
                                                             </div>
+                                                            {(singleResult.registration?.confidence ?? 0) > 0 && <ConfidenceRing value={singleResult.registration?.confidence ?? 0} label="REG" color={(singleResult.registration?.confidence ?? 0) > 80 ? '#00c853' : (singleResult.registration?.confidence ?? 0) > 50 ? '#ffab00' : '#ff1744'} />}
                                                         </div>
-                                                        {(singleResult.registration?.confidence ?? 0) > 0 && <ConfidenceRing value={singleResult.registration?.confidence ?? 0} label="REG" color={(singleResult.registration?.confidence ?? 0) > 80 ? '#00c853' : (singleResult.registration?.confidence ?? 0) > 50 ? '#ffab00' : '#ff1744'} />}
                                                     </div>
-                                                </div>
+                                                </>
                                             )}
                                         </div>
                                     )}
@@ -1491,8 +1553,7 @@ export function VehicleModule() {
                                                                                             </span>
                                                                                             <CopyButton value={row.chassis || ''} />
                                                                                         </div>
-                                                                                        <VINBreakdown vin={row.chassis} />
-                                                                                        {row.status !== 'invalid' && (
+                                                                                        {row.status !== 'invalid' && row.chassis && (
                                                                                             <React.Fragment>
                                                                                                 <div style={{ fontSize: 11, color: '#4a5568', marginBottom: 6 }}>
                                                                                                     <span style={{ color: '#00c853', marginRight: 6 }}>✓</span>
@@ -1656,7 +1717,8 @@ export function VehicleModule() {
                                         status: r.status,
                                         extractionMethod: r.chassisSource || 'OCR',
                                         invalidReason: r.chassisRejectionReason || null,
-                                        resultHash: simpleHash(`${r.chassis}${r.registration}${r.status}`)
+                                        resultHash: simpleHash(`${r.chassis}${r.registration}${r.status}`),
+                                        imagePreview: r.thumbnail || undefined
                                     }));
                                     localStorage.setItem('verentis_audit', JSON.stringify([...audit, ...entries]));
                                 }} style={{ flex: 2, background: '#00c2cb', border: 'none', color: '#000', padding: '14px', borderRadius: 12, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', cursor: 'pointer' }}>Create Case File</button>
@@ -1694,6 +1756,153 @@ export function VehicleModule() {
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#4a5568', textTransform: 'uppercase', letterSpacing: '1px' }}>Night Mode Intensity</div>
                     <input type="range" min="30" max="100" defaultValue="100" onChange={e => { document.getElementById('vehicle-module-root')!.style.filter = `brightness(${e.target.value}%)`; }} style={{ flex: 1, height: 4, background: '#1e2535', borderRadius: 2, appearance: 'none', outline: 'none' }} />
                 </div>
+
+                {isPreviewModalOpen && typeof document !== 'undefined' && createPortal(
+                    <div style={{
+                        position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+                        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                        zIndex: 99999,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        padding: '20px',
+                        backdropFilter: 'blur(8px)',
+                        WebkitBackdropFilter: 'blur(8px)'
+                    }} onClick={() => setIsPreviewModalOpen(false)}>
+                        <div style={{
+                            background: '#0a0d14',
+                            border: '1px solid #1e2535',
+                            borderRadius: '24px',
+                            width: '75vw',
+                            height: '90vh',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            boxShadow: '0 50px 100px -12px rgba(0, 0, 0, 0.8)',
+                            position: 'relative',
+                            overflow: 'hidden',
+                            zIndex: 100000
+                        }} onClick={e => e.stopPropagation()}>
+                            {/* Header */}
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '20px 32px',
+                                borderBottom: '1px solid #1e2535',
+                                background: '#0a0d14'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ width: '40px', height: '40px', background: 'rgba(0,194,203,0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(0,194,203,0.2)' }}>
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00c2cb" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '15px', fontWeight: 900, color: '#e8ecf4', textTransform: 'uppercase', letterSpacing: '1px', lineHeight: 1 }}>
+                                            {uploadedFile?.name || 'Document Preview'}
+                                        </div>
+                                        <div style={{ fontSize: '10px', fontWeight: 700, color: '#4a5568', textTransform: 'uppercase', letterSpacing: '2px', marginTop: '6px' }}>
+                                            Forensic Capture • {new Date().toLocaleDateString()}
+                                        </div>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setIsPreviewModalOpen(false)}
+                                    style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: '#4a5568', cursor: 'pointer', padding: '8px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                                    onMouseEnter={e => e.currentTarget.style.color = '#fff'}
+                                    onMouseLeave={e => e.currentTarget.style.color = '#4a5568'}
+                                >
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                </button>
+                            </div>
+
+                            {/* Preview Area */}
+                            <div style={{
+                                flex: 1,
+                                overflow: 'auto',
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                background: '#0a0d14',
+                                position: 'relative',
+                                padding: '16px'
+                            }}>
+                                {singleThumbnail ? (
+                                    <div style={{
+                                        width: `${zoom}%`,
+                                        height: `${zoom}%`,
+                                        minWidth: '100%',
+                                        minHeight: '100%',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        transition: 'all 0.2s ease-out'
+                                    }}>
+                                        <img
+                                            className="object-contain shadow-2xl rounded-[4px] max-h-[75vh]"
+                                            src={singleThumbnail}
+                                            style={{
+                                                width: '100%',
+                                                height: 'auto',
+                                                imageRendering: 'high-quality',
+                                                WebkitImageRendering: 'high-quality'
+                                            } as any}
+                                            alt="Document preview full"
+                                        />
+                                    </div>
+                                ) : (
+                                    <div style={{ color: '#4a5568', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>No preview available</div>
+                                )}
+                            </div>
+
+                            {/* Zoom Controls */}
+                            <div style={{
+                                padding: '16px 32px',
+                                borderTop: '1px solid #1e2535',
+                                background: '#0a0d14',
+                                display: 'flex',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                            }}>
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '24px',
+                                    background: '#10131c',
+                                    padding: '8px 24px',
+                                    borderRadius: '30px',
+                                    border: '1px solid #1e2535',
+                                    boxShadow: '0 10px 30px rgba(0,0,0,0.3)'
+                                }}>
+                                    <button
+                                        onClick={() => setZoom(z => Math.max(50, z - 25))}
+                                        style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#1e2535', border: 'none', color: '#4a5568', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', fontWeight: 900, transition: 'all 0.2s' }}
+                                        onMouseEnter={e => { e.currentTarget.style.background = '#00c2cb'; e.currentTarget.style.color = '#0a0d14'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.background = '#1e2535'; e.currentTarget.style.color = '#4a5568'; }}
+                                    >
+                                        -
+                                    </button>
+                                    <div style={{ minWidth: '60px', textAlign: 'center' }}>
+                                        <span style={{ fontSize: '12px', fontWeight: 900, color: '#e8ecf4', textTransform: 'uppercase', letterSpacing: '1px' }}>{zoom}%</span>
+                                    </div>
+                                    <button
+                                        onClick={() => setZoom(z => Math.min(300, z + 25))}
+                                        style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#1e2535', border: 'none', color: '#4a5568', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', fontWeight: 900, transition: 'all 0.2s' }}
+                                        onMouseEnter={e => { e.currentTarget.style.background = '#00c2cb'; e.currentTarget.style.color = '#0a0d14'; }}
+                                        onMouseLeave={e => { e.currentTarget.style.background = '#1e2535'; e.currentTarget.style.color = '#4a5568'; }}
+                                    >
+                                        +
+                                    </button>
+                                    <div style={{ width: '1px', height: '16px', background: '#1e2535' }} />
+                                    <button
+                                        onClick={() => setZoom(100)}
+                                        style={{ background: 'transparent', border: 'none', color: '#4a5568', cursor: 'pointer', fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', transition: 'color 0.2s' }}
+                                        onMouseEnter={e => e.currentTarget.style.color = '#00c2cb'}
+                                        onMouseLeave={e => e.currentTarget.style.color = '#4a5568'}
+                                    >
+                                        Reset
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    , document.body)}
             </div>
         </div >
     );

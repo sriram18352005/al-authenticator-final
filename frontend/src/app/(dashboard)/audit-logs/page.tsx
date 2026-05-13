@@ -2,18 +2,21 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
-import { 
-    Clipboard, 
-    ShieldCheck, 
-    FileWarning, 
-    Search, 
-    Hash, 
-    Fingerprint, 
-    Clock, 
+import {
+    Clipboard,
+    ShieldCheck,
+    FileWarning,
+    Search,
+    Hash,
+    Fingerprint,
+    Clock,
     ChevronRight,
     SearchX,
     Trash2,
-    Eye
+    Eye,
+    Image as ImageIcon,
+    FileText,
+    X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -28,13 +31,18 @@ interface AuditEntry {
     extractionMethod: string;
     invalidReason: string | null;
     resultHash: string;
+    imagePreview?: string; // Base64 or URL
+    imagePages?: string[];  // All rendered pages for multi-page PDFs
 }
 
 export default function AuditLogsPage() {
     const [logs, setLogs] = useState<AuditEntry[]>([]);
     const [filter, setFilter] = useState("");
     const [selectedLog, setSelectedLog] = useState<AuditEntry | null>(null);
+    const [previewLog, setPreviewLog] = useState<AuditEntry | null>(null);
+    const [zoom, setZoom] = useState(100);
     const [isLoading, setIsLoading] = useState(true);
+    const [previewPageIndex, setPreviewPageIndex] = useState(0);
 
     const loadLogs = () => {
         try {
@@ -42,7 +50,7 @@ export default function AuditLogsPage() {
             if (data) {
                 const parsed = JSON.parse(data);
                 // Sort by timestamp descending
-                setLogs(parsed.sort((a: any, b: any) => 
+                setLogs(parsed.sort((a: any, b: any) =>
                     new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
                 ));
             }
@@ -57,21 +65,23 @@ export default function AuditLogsPage() {
         loadLogs();
         // Monitor for updates
         window.addEventListener('storage', loadLogs);
-        
+
         // Polling interval as fallback for the same-window updates
         const interval = setInterval(loadLogs, 2000);
-        
+
         return () => {
             window.removeEventListener('storage', loadLogs);
             clearInterval(interval);
         };
     }, []);
 
-    const filteredLogs = logs.filter(l => 
-        l.fileName.toLowerCase().includes(filter.toLowerCase()) ||
-        l.chassis?.toLowerCase().includes(filter.toLowerCase()) ||
-        l.registration?.toLowerCase().includes(filter.toLowerCase()) ||
-        l.status.toLowerCase().includes(filter.toLowerCase())
+    const filteredLogs = logs.filter(l =>
+        l.fileName?.toLowerCase()?.includes(filter.toLowerCase()) ||
+        l.chassis?.toLowerCase()?.includes(filter.toLowerCase()) ||
+        l.registration?.toLowerCase()?.includes(filter.toLowerCase()) ||
+        l.status?.toLowerCase()?.includes(filter.toLowerCase()) ||
+        (l as any).ticketId?.toLowerCase()?.includes(filter.toLowerCase()) ||
+        (l as any).category?.toLowerCase()?.includes(filter.toLowerCase())
     );
 
     const clearLogs = () => {
@@ -79,6 +89,11 @@ export default function AuditLogsPage() {
             localStorage.removeItem('verentis_audit');
             setLogs([]);
         }
+    };
+
+    const isImage = (fileName: string) => {
+        const ext = fileName.toLowerCase().split('.').pop();
+        return ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext || '');
     };
 
     return (
@@ -90,7 +105,7 @@ export default function AuditLogsPage() {
             </div>
 
             <div className="max-w-[1400px] mx-auto relative z-10 space-y-8">
-                
+
                 {/* Header Section */}
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-2 border-b border-[#1e2535]">
                     <div className="space-y-2">
@@ -111,15 +126,15 @@ export default function AuditLogsPage() {
                     <div className="flex items-center gap-4">
                         <div className="relative group">
                             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#4a5568] group-focus-within:text-[#00c2cb] transition-colors" />
-                            <input 
-                                type="text" 
+                            <input
+                                type="text"
                                 placeholder="Search by VIN, Plate, or Filename..."
                                 value={filter}
                                 onChange={e => setFilter(e.target.value)}
                                 className="pl-11 pr-6 py-3 bg-[#10131c] border border-[#1e2535] rounded-full text-sm focus:outline-none focus:border-[#00c2cb] focus:ring-1 focus:ring-[#00c2cb30] w-[350px] transition-all placeholder:text-[#2d3748]"
                             />
                         </div>
-                        <button 
+                        <button
                             onClick={clearLogs}
                             className="p-3 bg-red-500/5 hover:bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 transition-all hover:scale-105 active:scale-95 group"
                             title="Clear Audit Trail"
@@ -166,7 +181,7 @@ export default function AuditLogsPage() {
                                     </tr>
                                 ) : (
                                     filteredLogs.map((log, idx) => (
-                                        <motion.tr 
+                                        <motion.tr
                                             key={log.timestamp + idx}
                                             initial={{ opacity: 0, x: -10 }}
                                             animate={{ opacity: 1, x: 0 }}
@@ -217,8 +232,8 @@ export default function AuditLogsPage() {
                                                 <div className={cn(
                                                     "inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest",
                                                     log.status === 'valid' ? "bg-[#00c85310] border-[#00c85330] text-[#00c853]" :
-                                                    log.status === 'partial' ? "bg-[#ffab0010] border-[#ffab0030] text-[#ffab00]" :
-                                                    "bg-[#ff174410] border-[#ff174430] text-[#ff1744]"
+                                                        log.status === 'partial' ? "bg-[#ffab0010] border-[#ffab0030] text-[#ffab00]" :
+                                                            "bg-[#ff174410] border-[#ff174430] text-[#ff1744]"
                                                 )}>
                                                     {log.status === 'valid' && <ShieldCheck className="w-3 h-3" />}
                                                     {log.status !== 'valid' && <FileWarning className="w-3 h-3 text-[#ff1744]" />}
@@ -242,12 +257,25 @@ export default function AuditLogsPage() {
 
                                             {/* Details Button */}
                                             <td className="px-6 py-6 text-center">
-                                                <button 
-                                                    onClick={() => setSelectedLog(log)}
-                                                    className="w-8 h-8 rounded-lg bg-[#1e2535] hover:bg-[#00c2cb] border border-white/5 flex items-center justify-center transition-all group/btn"
-                                                >
-                                                    <Eye className="w-4 h-4 text-[#4a5568] group-hover/btn:text-[#0a0d14] transition-colors" />
-                                                </button>
+                                                <div className="flex items-center justify-center gap-2">
+                                                    <button
+                                                        onClick={() => setSelectedLog(log)}
+                                                        className="w-8 h-8 rounded-lg bg-[#1e2535] hover:bg-[#00c2cb] border border-white/5 flex items-center justify-center transition-all group/btn"
+                                                        title="View Evidence Details"
+                                                    >
+                                                        <Eye className="w-4 h-4 text-[#4a5568] group-hover/btn:text-[#0a0d14] transition-colors" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            setZoom(100);
+                                                            setPreviewLog(log);
+                                                        }}
+                                                        className="w-8 h-8 rounded-lg bg-[#1e2535] hover:bg-[#00c2cb] border border-white/5 flex items-center justify-center transition-all group/btn"
+                                                        title="Preview Document"
+                                                    >
+                                                        <FileText className="w-4 h-4 text-[#4a5568] group-hover/btn:text-[#0a0d14] transition-colors" />
+                                                    </button>
+                                                </div>
                                             </td>
                                         </motion.tr>
                                     ))
@@ -262,14 +290,14 @@ export default function AuditLogsPage() {
             <AnimatePresence>
                 {selectedLog && (
                     <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 sm:p-24 overflow-hidden">
-                        <motion.div 
+                        <motion.div
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
                             onClick={() => setSelectedLog(null)}
                             className="absolute inset-0 bg-black/80 backdrop-blur-sm"
                         />
-                        <motion.div 
+                        <motion.div
                             initial={{ opacity: 0, scale: 0.9, y: 20 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
                             exit={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -285,7 +313,7 @@ export default function AuditLogsPage() {
                                     </div>
                                 </div>
                                 <button onClick={() => setSelectedLog(null)} className="w-8 h-8 rounded-full hover:bg-white/5 text-[#4a5568] hover:text-[#e8ecf4] transition-all flex items-center justify-center">
-                                    <Trash2 className="w-4 h-4 rotate-45" />
+                                    <X className="w-4 h-4" />
                                 </button>
                             </div>
 
@@ -356,7 +384,7 @@ export default function AuditLogsPage() {
 
                             {/* Modal Footer */}
                             <div className="px-8 py-6 bg-[#0a0d14] border-t border-[#1e2535] flex justify-end">
-                                <button 
+                                <button
                                     onClick={() => setSelectedLog(null)}
                                     className="px-6 py-2 bg-[#1e2535] hover:bg-[#2d3748] border border-white/5 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
                                 >
@@ -368,7 +396,149 @@ export default function AuditLogsPage() {
                 )}
             </AnimatePresence>
 
-            <style dangerouslySetInnerHTML={{ __html: `
+            {/* Preview Modal */}
+            <AnimatePresence>
+                {previewLog && (
+                    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 overflow-hidden">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setPreviewLog(null)}
+                            className="absolute inset-0 bg-black/95 backdrop-blur-xl"
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.98 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.98 }}
+                            className="w-[75vw] h-[90vh] bg-[#0a0d14] border border-[#1e2535] rounded-3xl shadow-[0_50px_100px_rgba(0,0,0,0.9)] relative z-20 overflow-hidden flex flex-col"
+                        >
+                            {/* Header */}
+                            <div className="px-8 py-5 border-b border-[#1e2535] bg-[#0a0d14] flex items-center justify-between shrink-0">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-10 h-10 rounded-xl bg-[#00c2cb10] text-[#00c2cb] flex items-center justify-center border border-[#00c2cb20]">
+                                        {isImage(previewLog.fileName) ? <ImageIcon className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                                    </div>
+                                    <div>
+                                        <h3 className="text-base font-black text-white uppercase tracking-tight leading-none">{previewLog.fileName}</h3>
+                                        <p className="text-[10px] font-bold text-[#4a5568] uppercase tracking-[0.2em] mt-1.5">
+                                            Forensic Capture: {new Date(previewLog.timestamp).toLocaleString()}
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setPreviewLog(null)}
+                                    className="w-10 h-10 rounded-full hover:bg-white/5 text-[#4a5568] hover:text-white transition-all flex items-center justify-center border border-transparent hover:border-[#1e2535]"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                            </div>
+
+                            {/* Preview Area */}
+                            <div className="flex-1 overflow-auto p-4 flex items-center justify-center bg-[#0a0d14] relative group/preview scrollbar-hide">
+                                {/* Background Watermark */}
+                                <div className="absolute inset-0 flex items-center justify-center opacity-[0.02] pointer-events-none">
+                                    <ShieldCheck className="w-96 h-96" />
+                                </div>
+
+                                {(previewLog.imagePreview || (previewLog.imagePages && previewLog.imagePages.length > 0)) ? (
+                                    (() => {
+                                        const pages = previewLog.imagePages || (previewLog.imagePreview ? [previewLog.imagePreview] : []);
+                                        const src = pages[previewPageIndex] || previewLog.imagePreview || '';
+                                        return (
+                                            <div
+                                                className="relative flex flex-col items-center justify-center gap-3 transition-all duration-200 ease-out"
+                                                style={{
+                                                    width: `${zoom}%`,
+                                                    height: `${zoom}%`,
+                                                    minWidth: '100%',
+                                                    minHeight: '100%'
+                                                }}
+                                            >
+                                                <img
+                                                    src={src}
+                                                    alt={previewLog.fileName}
+                                                    className="object-contain shadow-2xl rounded-sm max-h-[65vh]"
+                                                    style={{
+                                                        width: '100%',
+                                                        height: 'auto',
+                                                        imageRendering: 'high-quality',
+                                                        WebkitImageRendering: 'high-quality'
+                                                    } as any}
+                                                />
+                                                {pages.length > 1 && (
+                                                    <div className="flex items-center gap-3 shrink-0">
+                                                        <button
+                                                            onClick={() => setPreviewPageIndex(p => Math.max(0, p - 1))}
+                                                            disabled={previewPageIndex === 0}
+                                                            className={`px-3 py-1 rounded-lg text-xs font-black border transition-all ${previewPageIndex === 0
+                                                                    ? 'bg-[#1e2535] text-[#4a5568] border-[#1e2535] cursor-default'
+                                                                    : 'bg-[#00c2cb] text-[#0a0d14] border-[#00c2cb] hover:bg-[#00d4de] cursor-pointer'
+                                                                }`}
+                                                        >← Prev</button>
+                                                        <span className="text-[11px] font-bold text-[#4a5568]">
+                                                            Page {previewPageIndex + 1} of {pages.length}
+                                                        </span>
+                                                        <button
+                                                            onClick={() => setPreviewPageIndex(p => Math.min(pages.length - 1, p + 1))}
+                                                            disabled={previewPageIndex === pages.length - 1}
+                                                            className={`px-3 py-1 rounded-lg text-xs font-black border transition-all ${previewPageIndex === pages.length - 1
+                                                                    ? 'bg-[#1e2535] text-[#4a5568] border-[#1e2535] cursor-default'
+                                                                    : 'bg-[#00c2cb] text-[#0a0d14] border-[#00c2cb] hover:bg-[#00d4de] cursor-pointer'
+                                                                }`}
+                                                        >Next →</button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()
+                                ) : (
+                                    <div className="flex flex-col items-center gap-8 py-20">
+                                        <div className="w-40 h-40 rounded-[2rem] bg-[#1e2535] flex items-center justify-center shadow-2xl opacity-50">
+                                            {isImage(previewLog.fileName) ? <ImageIcon className="w-20 h-20 text-[#4a5568]" /> : <FileText className="w-20 h-20 text-[#4a5568]" />}
+                                        </div>
+                                        <div className="text-center space-y-3 opacity-50">
+                                            <p className="text-2xl font-black text-white uppercase tracking-tighter">Evidence Not Found</p>
+                                            <p className="text-sm font-bold text-[#4a5568] uppercase tracking-widest max-w-md mx-auto">This historical entry does not contain a persistent visual capture.</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Zoom Controls */}
+                            <div className="px-8 py-4 bg-[#0a0d14] border-t border-[#1e2535] flex items-center justify-center shrink-0">
+                                <div className="flex items-center gap-6 bg-[#10131c] px-6 py-2 rounded-full border border-[#1e2535] shadow-xl">
+                                    <button
+                                        onClick={() => setZoom(z => Math.max(50, z - 25))}
+                                        className="w-8 h-8 rounded-full bg-[#1e2535] hover:bg-[#00c2cb] text-[#4a5568] hover:text-[#0a0d14] flex items-center justify-center transition-all font-black text-lg"
+                                    >
+                                        -
+                                    </button>
+                                    <div className="flex flex-col items-center min-w-[60px]">
+                                        <span className="text-xs font-black text-[#e8ecf4] uppercase tracking-widest">{zoom}%</span>
+                                    </div>
+                                    <button
+                                        onClick={() => setZoom(z => Math.min(300, z + 25))}
+                                        className="w-8 h-8 rounded-full bg-[#1e2535] hover:bg-[#00c2cb] text-[#4a5568] hover:text-[#0a0d14] flex items-center justify-center transition-all font-black text-lg"
+                                    >
+                                        +
+                                    </button>
+                                    <div className="w-px h-4 bg-[#1e2535] mx-2" />
+                                    <button
+                                        onClick={() => setZoom(100)}
+                                        className="text-[10px] font-black uppercase tracking-widest text-[#4a5568] hover:text-[#00c2cb] transition-colors"
+                                    >
+                                        Reset
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            <style dangerouslySetInnerHTML={{
+                __html: `
                 @keyframes shake {
                     0%, 100% { transform: translateX(0); }
                     25% { transform: translateX(-2px); }

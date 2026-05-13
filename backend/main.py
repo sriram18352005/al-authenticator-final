@@ -73,7 +73,7 @@ MANUFACTURER_PREFIXES = {
     'MBH':'Yamaha India','SHH':'Honda UK',
     'ZFF':'Ferrari','VF1':'Renault',
     'WAU':'Audi','5YJ':'Tesla','JN1':'Nissan',
-    'TMA':'TVS','MAL':'LML','MAC':'Scooters India'
+    'TMA':'TVS','MAL':'LML','MAC':'Scooters India','ME3':'Royal Enfield'
 }
 
 MONTHS = {'JAN','FEB','MAR','APR','MAY','JUN',
@@ -118,7 +118,9 @@ REJECT_WORDS = [
     'TRANSFER','OWNERSHIP','POSTAL','AVANTGARDE',
     'PACKAGE','VISION','COMFORT','SEDAN','CLASS',
     'VERIFICATION','CERTIFICATE','POLICY','INSURANCE',
-    'REGISTRATION','AUTHORITY','TRANSPORT','GOVERNMENT'
+    'REGISTRATION','AUTHORITY','TRANSPORT','GOVERNMENT',
+    'NAME','OWNER','VALID','TILL','DATE','REG','ADDRESS',
+    'ENGINE','FUEL','SON','DAUGHTER','WIFE'
 ]
 
 # ─── IMAGE PREPROCESSING ─────────────────────────────────────
@@ -422,8 +424,7 @@ def validate_chassis_detailed(val, exclusions):
             'clean_value': clean,
             'rejection_reason': (
                 f'Too long: {original_length} characters. '
-                f'Maximum chassis length is 17 characters (ISO 3779). '
-                f'Value exceeds standard limit — likely a data entry error or FORGED number.'
+                f'Maximum chassis length is 17 characters.'
             ),
             'severity': 'invalid'
         }
@@ -432,32 +433,30 @@ def validate_chassis_detailed(val, exclusions):
     has_known_prefix = any(
         clean.startswith(p) for p in MANUFACTURER_PREFIXES.keys()
     )
-    if has_known_prefix and original_length != 17:
+    if has_known_prefix and original_length != 17 and original_length < 6:
         return {
             'is_valid': False,
             'clean_value': clean,
             'rejection_reason': (
                 f'Chassis \'{clean}\' has {original_length} characters. '
-                f'Standard VIN/Chassis must be exactly 17 alphanumeric characters. '
-                f'This document may contain a FORGED or INCOMPLETE chassis number.'
+                f'Standard VIN must be 17 characters. Prefix detected but length is too low.'
             ),
             'severity': 'invalid'
         }
 
-    # Character check for 17-char VIN
-    if original_length == 17:
-        forbidden = [c for c in clean if c in ['I', 'O', 'Q']]
-        if forbidden:
-            return {
-                'is_valid': False,
-                'clean_value': clean,
-                'rejection_reason': (
-                    f'Standard VIN contains forbidden characters: '
-                    f'{", ".join(forbidden)}. Letters I, O, Q are not '
-                    f'allowed in standard VIN format (ISO 3779).'
-                ),
-                'severity': 'invalid'
-            }
+    # Character check (Rule 3: Invalid Character Check)
+    forbidden = [c for c in clean if c in ['I', 'O', 'Q']]
+    if forbidden:
+        return {
+            'is_valid': False,
+            'clean_value': clean,
+            'rejection_reason': (
+                f'Standard VIN contains forbidden characters: '
+                f'{", ".join(forbidden)}. Letters I, O, Q are not '
+                f'allowed in standard VIN format (ISO 3779).'
+            ),
+            'severity': 'invalid'
+        }
 
     # Composition checks
     digit_count = len(re.findall(r'[0-9]', clean))
@@ -495,21 +494,13 @@ def validate_chassis_detailed(val, exclusions):
             'severity': 'invalid'
         }
 
-    # Common word rejection
-    REJECT_WORDS = [
-        'CUSTOMER','ORDER','INVOICE','DEPARTMENT','DOCUMENT',
-        'RECEIPT','FINANCE','AMOUNT','TOTAL','BALANCE',
-        'TRANSFER','OWNERSHIP','POSTAL','AVANTGARDE',
-        'PACKAGE','VISION','COMFORT','SEDAN','CLASS',
-        'VERIFICATION','CERTIFICATE','POLICY','INSURANCE',
-        'AUTHORITY','TRANSPORT','GOVERNMENT'
-    ]
-    found_words = [w for w in REJECT_WORDS if w in clean]
+    # Common word rejection (Rule 3)
+    found_words = [w for w in REJECT_WORDS if w in clean or w in val.upper()]
     if found_words:
         return {
             'is_valid': False,
             'clean_value': clean,
-            'rejection_reason': f'Contains common word(s): {", ".join(found_words)}. Not a chassis number.',
+            'rejection_reason': f'Contains forbidden keyword(s): {", ".join(found_words)}. Field likely misidentified.',
             'severity': 'invalid'
         }
 
@@ -520,6 +511,29 @@ def validate_chassis_detailed(val, exclusions):
         'rejection_reason': None,
         'severity': None
     }
+
+
+def correct_wmi_misreads(wmi: str) -> str:
+    """Fix common OCR misreads in the first 3 characters (WMI) of a chassis number"""
+    if not wmi or len(wmi) < 3:
+        return wmi
+    
+    # Map for WMI correction (digit -> letter)
+    # Applied only to the first 3 characters where letters are expected
+    corrections = {
+        '8': 'B',
+        '0': 'O',
+        '1': 'I',
+        '5': 'S',
+        '6': 'G'
+    }
+    
+    wmi_chars = list(wmi.upper())
+    for i in range(min(3, len(wmi_chars))):
+        if wmi_chars[i] in corrections:
+            wmi_chars[i] = corrections[wmi_chars[i]]
+            
+    return "".join(wmi_chars)
 
 # ─── CHASSIS DETECTION ──────────────────────────────────────
 
@@ -538,147 +552,137 @@ def detect_chassis(full_text, lvm, exclusions):
     # Store all candidates for reporting
     all_candidates = []
 
-    # LAYER 1: Label match (highest priority)
-    for label in CHASSIS_LABELS:
-        for lvm_key, val in lvm.items():
-            if label in lvm_key:
-                raw = re.sub(r'[^A-Z0-9]', '', val.upper())
-                normalized = normalize_ocr(raw)
-                print(f"[CHS-L1] {lvm_key} -> {normalized}")
+    # Rule 1 & 2: Search specifically for Chassis No variants
+    target_labels = ["CHASSIS NO", "CHASSIS NO.", "CHASIS NO", "CHASIS NO.", "CHASSIS NUMBER", "VIN"]
+    
+    for idx, line in enumerate(lines):
+        found_label = None
+        for label in target_labels:
+            if label in line:
+                found_label = label
+                break
+        
+        if found_label:
+            print(f"[CHS] Found label '{found_label}' on line {idx}: {line}")
+            
+            # Step A: Check same line (Rule 1)
+            # Find index of label to extract text AFTER it
+            label_pos = line.find(found_label)
+            after_text = line[label_pos + len(found_label):].strip()
+            
+            # Extract alphanumeric tokens
+            tokens = re.findall(r'[A-Z0-9]{6,25}', after_text)
+            
+            # Step B: If no candidate on same line, check NEXT line (Rule 2)
+            if not tokens and idx + 1 < len(lines):
+                next_line = lines[idx+1].strip()
+                print(f"[CHS] Checking next line: {next_line}")
+                # Don't take next line if it contains other labels (Rule 4)
+                if not any(l in next_line for l in REG_LABELS + EXCLUDE_LABELS + ['OWNER', 'DATE', 'VALID']):
+                    tokens = re.findall(r'[A-Z0-9]{6,25}', next_line)
 
+            for token in tokens:
+                normalized = normalize_ocr(token)
                 validation = validate_chassis_detailed(normalized, engine_excl)
+                
+                # Rule 3: Mix text rejection
+                if any(word in token for word in ['NAME', 'OWNER', 'VALID', 'TILL']):
+                    validation['is_valid'] = False
+                    validation['rejection_reason'] = "Mixed label text detected"
+
                 all_candidates.append({
                     'value': normalized,
-                    'source': f'Label: {lvm_key}',
+                    'source': f'Field Scan ({found_label})',
                     'validation': validation
                 })
 
                 if validation['is_valid']:
                     clean = validation['clean_value']
-                    prefix = clean[:3]
-                    manufacturer = MANUFACTURER_PREFIXES.get(prefix)
-                    checksum = vin_checksum_valid(clean)
-                    confidence = 40
-                    if len(clean) == 17: confidence += 20
-                    if checksum: confidence += 20
-                    if manufacturer: confidence += 20
+                    
+                    # STEP 2 & 3: Apply WMI correction for scoring and display
+                    wmi_candidate = clean[:3]
+                    corrected_wmi = correct_wmi_misreads(wmi_candidate)
+                    
+                    # Valid WMI list with safety fallbacks (STEP 4)
+                    wmi_list = ["MA1", "MA3", "MAT", "MAL", "MAK", "MBA", "MB1", "MB8", "MBH", "MBL", "MD2", "MD7", "MDH", "ME3", "MEE", "MEF", "MEG", "MEL", "MES", "M81", "M88", "M8H", "M8L", "ME5"]
+                    
+                    # If corrected WMI matches, use it (STEP 3)
+                    if corrected_wmi in wmi_list or wmi_candidate in wmi_list:
+                        if corrected_wmi in wmi_list and corrected_wmi != wmi_candidate:
+                            clean = corrected_wmi + clean[3:]
+                        
+                        manufacturer = MANUFACTURER_PREFIXES.get(clean[:3])
+                        
+                        # Rule 7: Scoring - Give full 50 points for WMI check (STEP 3)
+                        confidence = 0
+                        if len(clean) == 17: confidence += 50
+                        confidence += 50 # Valid WMI matched
+                    else:
+                        manufacturer = MANUFACTURER_PREFIXES.get(clean[:3])
+                        confidence = 50 if len(clean) == 17 else 0
+                    
+                    # Check for I, O, Q (Standard VINs don't use them, but we allow for noisy OCR)
+                    if any(c in clean for c in ['I', 'O', 'Q']):
+                        # Only penalize if it's NOT in the first 3 chars (WMI) which we already handled
+                        if any(c in clean[3:] for c in ['I', 'O', 'Q']):
+                            confidence = max(0, confidence - 20)
+                        
+                        is_valid = True
+                        reason = "Contains non-standard characters I, O, Q (suspicious)"
+                    else:
+                        is_valid = True
+                        reason = None
+
                     return {
                         'value': clean,
-                        'source': f'Label: {lvm_key}',
+                        'source': f'Label: {found_label}',
                         'manufacturer': manufacturer,
-                        'checksum': checksum,
-                        'confidence': min(confidence, 100),
+                        'checksum': vin_checksum_valid(clean),
+                        'confidence': confidence,
+                        'is_valid': is_valid,
+                        'rejection_reason': reason,
+                        'candidates': all_candidates
+                    }
+
+    # LAYER 2: Fallback to LVM (Label-Value Map) if direct scan failed
+    for label in target_labels:
+        label_lower = label.lower().replace('.', '')
+        for lvm_key, val in lvm.items():
+            if label_lower in lvm_key:
+                normalized = normalize_ocr(re.sub(r'[^A-Z0-9]', '', val.upper()))
+                validation = validate_chassis_detailed(normalized, engine_excl)
+                all_candidates.append({
+                    'value': normalized,
+                    'source': f'LVM Fallback ({lvm_key})',
+                    'validation': validation
+                })
+                if validation['is_valid']:
+                    clean = validation['clean_value']
+                    
+                    # Apply WMI correction for LVM fallback too
+                    wmi_candidate = clean[:3]
+                    corrected_wmi = correct_wmi_misreads(wmi_candidate)
+                    wmi_list = ["MA1", "MA3", "MAT", "MAL", "MAK", "MBA", "MB1", "MB8", "MBH", "MBL", "MD2", "MD7", "MDH", "ME3", "MEE", "MEF", "MEG", "MEL", "MES", "M81", "M88", "M8H", "M8L", "ME5"]
+                    
+                    if corrected_wmi in wmi_list or wmi_candidate in wmi_list:
+                        if corrected_wmi in wmi_list and corrected_wmi != wmi_candidate:
+                            clean = corrected_wmi + clean[3:]
+                        manufacturer = MANUFACTURER_PREFIXES.get(clean[:3])
+                        confidence = 50 + (50 if len(clean) == 17 else 0)
+                    else:
+                        manufacturer = MANUFACTURER_PREFIXES.get(clean[:3])
+                        confidence = 50 if len(clean) == 17 else 0
+                        
+                    return {
+                        'value': clean,
+                        'source': f'LVM: {lvm_key}',
+                        'manufacturer': manufacturer,
+                        'checksum': vin_checksum_valid(clean),
+                        'confidence': confidence,
                         'is_valid': True,
                         'rejection_reason': None,
                         'candidates': all_candidates
                     }
-                else:
-                    # Found via label but INVALID — return as invalid
-                    # This is important: label-found but wrong format
-                    print(f"[CHS] Found via label but INVALID: {validation['rejection_reason']}")
-                    return {
-                        'value': normalized,
-                        'source': f'Label: {lvm_key}',
-                        'manufacturer': MANUFACTURER_PREFIXES.get(normalized[:3]),
-                        'checksum': False,
-                        'confidence': 0,
-                        'is_valid': False,
-                        'rejection_reason': validation['rejection_reason'],
-                        'candidates': all_candidates
-                    }
-
-    # LAYER 2: Line pattern search
-    for line in lines:
-        if 'ENGINE' in line:
-            continue
-        m = re.search(
-            r'(?:CH(?:ASS?IS)?|FRAME|VIN|BODY)\s*'
-            r'(?:NO|NUMBER|N[O0])?[.:\s]+([A-Z0-9\s]{6,25})',
-            line
-        )
-        if m:
-            raw = re.sub(r'[^A-Z0-9]', '', m.group(1).upper())
-            normalized = normalize_ocr(raw)
-            validation = validate_chassis_detailed(normalized, engine_excl)
-            all_candidates.append({
-                'value': normalized,
-                'source': 'Line pattern',
-                'validation': validation
-            })
-            if validation['is_valid']:
-                clean = validation['clean_value']
-                manufacturer = MANUFACTURER_PREFIXES.get(clean[:3])
-                checksum = vin_checksum_valid(clean)
-                return {
-                    'value': clean,
-                    'source': 'Line pattern',
-                    'manufacturer': manufacturer,
-                    'checksum': checksum,
-                    'confidence': 70,
-                    'is_valid': True,
-                    'rejection_reason': None,
-                    'candidates': all_candidates
-                }
-            else:
-                return {
-                    'value': normalized,
-                    'source': 'Line pattern',
-                    'manufacturer': MANUFACTURER_PREFIXES.get(normalized[:3]),
-                    'checksum': False,
-                    'confidence': 0,
-                    'is_valid': False,
-                    'rejection_reason': validation['rejection_reason'],
-                    'candidates': all_candidates
-                }
-
-    # LAYER 3: Known manufacturer prefix scan
-    no_space = re.sub(r'\s', '', upper)
-    for prefix, mfr in MANUFACTURER_PREFIXES.items():
-        idx = no_space.find(prefix)
-        if idx == -1:
-            continue
-        # Extract up to 20 chars from prefix position
-        candidate = no_space[idx:idx+20]
-        clean = re.sub(r'[^A-Z0-9]', '', candidate)
-        # Take exactly 17 if possible
-        if len(clean) >= 17:
-            clean = clean[:17]
-        validation = validate_chassis_detailed(clean, engine_excl)
-        all_candidates.append({
-            'value': clean,
-            'source': f'Prefix: {prefix}',
-            'validation': validation
-        })
-        if validation['is_valid']:
-            checksum = vin_checksum_valid(clean)
-            return {
-                'value': clean,
-                'source': f'Manufacturer prefix: {prefix}',
-                'manufacturer': mfr,
-                'checksum': checksum,
-                'confidence': 80 if checksum else 65,
-                'is_valid': True,
-                'rejection_reason': None,
-                'candidates': all_candidates
-            }
-
-    # LAYER 4: 17-char VIN scan
-    vins = re.findall(r'[A-HJ-NPR-Z0-9]{17}', no_space)
-    for vin in vins:
-        validation = validate_chassis_detailed(vin, engine_excl)
-        if validation['is_valid']:
-            manufacturer = MANUFACTURER_PREFIXES.get(vin[:3])
-            checksum = vin_checksum_valid(vin)
-            return {
-                'value': vin,
-                'source': '17-char VIN scan',
-                'manufacturer': manufacturer,
-                'checksum': checksum,
-                'confidence': 60 if checksum else 45,
-                'is_valid': True,
-                'rejection_reason': None,
-                'candidates': all_candidates
-            }
 
     # Nothing valid found
     return {
@@ -688,7 +692,7 @@ def detect_chassis(full_text, lvm, exclusions):
         'checksum': False,
         'confidence': 0,
         'is_valid': False,
-        'rejection_reason': None,
+        'rejection_reason': 'Could not extract valid chassis number following Indian RC standards.',
         'candidates': all_candidates
     }
 
@@ -746,7 +750,7 @@ def detect_registration(full_text, lvm, exclusions):
                         'raw': raw,
                         'state': STATE_NAMES.get(state, state),
                         'source': f'Label: {lvm_key}',
-                        'confidence': 90
+                        'confidence': 100
                     }
 
     # LAYER 2: Line keyword search
@@ -790,8 +794,8 @@ def detect_registration(full_text, lvm, exclusions):
                 'value': format_reg(val),
                 'raw': val,
                 'state': STATE_NAMES.get(state, state),
-                'source': 'State code scan',
-                'confidence': 70
+                'source': 'Pattern scan',
+                'confidence': 100
             }
 
     # LAYER 4: BH series
@@ -844,11 +848,12 @@ def is_vehicle_document(text):
         'new vehicle','vehicle price','stamp duty',
         'vahan','parivahan','transfer of ownership',
         'vehicle identification','grand total','m-cycle',
-        'scooter','motorcycle','car','truck','bus','lorry'
+        'scooter','motorcycle','car','truck','bus','lorry',
+        'maker','model','mfg','year of mfg'
     ]
     count = sum(1 for k in keywords if k in lower)
     print(f"Vehicle keywords found: {count}")
-    return count >= 2
+    return count >= 1
 
 # ─── MAIN ANALYZE ENDPOINT ──────────────────────────────────
 

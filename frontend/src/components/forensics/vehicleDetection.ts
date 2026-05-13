@@ -68,14 +68,28 @@ export const extractWithTesseract = async (
         const ab = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
         const page = await pdf.getPage(1);
-        const vp = page.getViewport({ scale: 300 / 72 });
+        
+        const pixelRatio = window.devicePixelRatio || 1;
+        const RENDER_SCALE = 2.5 * pixelRatio;
+        const vp = page.getViewport({ scale: RENDER_SCALE });
+        
         const canvas = document.createElement("canvas");
-        canvas.width = vp.width;
-        canvas.height = vp.height;
+        canvas.width = Math.floor(vp.width);
+        canvas.height = Math.floor(vp.height);
+        canvas.style.width = Math.floor(vp.width / pixelRatio) + 'px';
+        canvas.style.height = Math.floor(vp.height / pixelRatio) + 'px';
+        
         const ctx = canvas.getContext("2d")!;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.fillStyle = "white";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        
+        await page.render({ 
+            canvasContext: ctx, 
+            viewport: vp,
+            intent: 'print'
+        }).promise;
         source = canvas;
     }
 

@@ -9,35 +9,35 @@ export function Navbar() {
         <motion.nav
             initial={{ y: -100 }}
             animate={{ y: 0 }}
-            className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-12 py-5 bg-white/80 backdrop-blur-md border-b border-slate-200"
+            className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-12 py-5 bg-[#050810]/80 backdrop-blur-md border-b border-white/10"
         >
             <div className="flex items-center gap-2">
-                <div className="bg-blue-600 p-1.5 rounded-lg shadow-lg shadow-blue-500/30">
-                    <ShieldCheck className="w-6 h-6 text-white" />
+                <div className="bg-[#00c2cb] p-1.5 rounded-lg shadow-lg shadow-[#00c2cb]/30">
+                    <ShieldCheck className="w-6 h-6 text-[#050810]" />
                 </div>
-                <span className="text-xl font-black tracking-tight text-slate-900">
-                    AL <span className="text-blue-600">AUTHENTICATOR</span>
+                <span className="text-xl font-black tracking-tight text-white uppercase">
+                    Verentis
                 </span>
             </div>
 
-            <div className="hidden md:flex items-center gap-8 text-sm font-semibold text-slate-600">
-                <Link href="#solutions" className="hover:text-blue-600 transition-colors">Solutions</Link>
-                <Link href="#explainability" className="hover:text-blue-600 transition-colors">Explainability</Link>
-                <Link href="#compliance" className="hover:text-blue-600 transition-colors">Compliance</Link>
-                <Link href="#pricing" className="hover:text-blue-600 transition-colors">Pricing</Link>
+            <div className="hidden md:flex items-center gap-8 text-sm font-semibold text-[#4a5568]">
+                <Link href="#solutions" className="hover:text-[#00c2cb] transition-colors">Solutions</Link>
+                <Link href="#explainability" className="hover:text-[#00c2cb] transition-colors">Explainability</Link>
+                <Link href="#compliance" className="hover:text-[#00c2cb] transition-colors">Compliance</Link>
+                <Link href="#pricing" className="hover:text-[#00c2cb] transition-colors">Pricing</Link>
             </div>
 
             <div className="flex items-center gap-6">
-                <Link href="/dashboard" className="text-sm font-semibold text-slate-600 hover:text-blue-600 transition-colors">
+                <Link href="/login" className="text-sm font-semibold text-[#4a5568] hover:text-[#00c2cb] transition-colors">
                     Client Login
                 </Link>
                 <Link
-                    href="/dashboard/analysis"
-                    className="px-6 py-2.5 text-sm font-bold text-white bg-blue-500 rounded-md hover:bg-blue-600 transition-all shadow-lg shadow-blue-500/20"
+                    href="/login"
+                    className="px-6 py-2.5 text-sm font-bold text-[#050810] bg-[#00c2cb] rounded-md hover:bg-[#00e6f0] transition-all shadow-lg shadow-[#00c2cb]/20"
                 >
                     ENTERPRISE ACCESS
                 </Link>
-                <Menu className="w-6 h-6 md:hidden text-slate-800 cursor-pointer" />
+                <Menu className="w-6 h-6 md:hidden text-white cursor-pointer" />
             </div>
         </motion.nav>
     );

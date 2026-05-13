@@ -6,17 +6,18 @@ import { useEffect, useState, useRef } from "react";
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher";
 import { cn } from "@/lib/utils";
 import { Shield, Activity, FileText, Clipboard, BarChart, Settings as SettingsIcon, LogOut, Search, X } from "lucide-react";
+import { NotificationProvider, useNotifications } from "@/context/NotificationContext";
 
 function CommandPalette({ open, setOpen, router }: { open: boolean, setOpen: any, router: any }) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [query, setQuery] = useState("");
     const [selIdx, setSelIdx] = useState(0);
     const actions = [
-        { label: 'Analytics Hub', path: '/dashboard/reports', icon: <BarChart className="w-4 h-4" /> },
-        { label: 'Document Analysis (Live Scan)', path: '/dashboard/analysis', icon: <FileText className="w-4 h-4" /> },
-        { label: 'Threat Intelligence', path: '/dashboard', icon: <Activity className="w-4 h-4" /> },
-        { label: 'Audit Logs', path: '/dashboard/audit-logs', icon: <Clipboard className="w-4 h-4" /> },
-        { label: 'System Settings', path: '/dashboard/settings', icon: <SettingsIcon className="w-4 h-4" /> },
+        { label: 'Threat Intelligence', path: '/threat-intelligence', icon: <Activity className="w-4 h-4" /> },
+        { label: 'Document Analysis (Live Scan)', path: '/document-analysis', icon: <FileText className="w-4 h-4" /> },
+        { label: 'Audit Logs', path: '/audit-logs', icon: <Clipboard className="w-4 h-4" /> },
+        { label: 'Analytics Hub', path: '/dashboard', icon: <BarChart className="w-4 h-4" /> },
+        { label: 'System Settings', path: '/settings', icon: <SettingsIcon className="w-4 h-4" /> },
     ];
     const filtered = actions.filter(a => a.label.toLowerCase().includes(query.toLowerCase()));
 
@@ -82,8 +83,6 @@ function CommandPalette({ open, setOpen, router }: { open: boolean, setOpen: any
         </div>
     );
 }
-
-import { NotificationProvider, useNotifications } from "@/context/NotificationContext";
 
 // ─── Global Onboarding Tour ────────────────────────────────────
 const TOUR_STEPS = [
@@ -214,11 +213,11 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
     }, []);
 
     const navItems = [
-        { name: "Threat Intelligence", icon: <Activity className="w-4 h-4" />, path: "/dashboard" },
-        { name: "Document Analysis", icon: <FileText className="w-4 h-4" />, path: "/dashboard/analysis" },
-        { name: "Audit Logs", icon: <Clipboard className="w-4 h-4" />, path: "/dashboard/audit-logs" },
-        { name: "Analytics Hub", icon: <BarChart className="w-4 h-4" />, path: "/dashboard/reports" },
-        { name: "Settings", icon: <SettingsIcon className="w-4 h-4" />, path: "/dashboard/settings" },
+        { name: "Threat Intelligence", icon: <Activity className="w-4 h-4" />, path: "/threat-intelligence" },
+        { name: "Document Analysis", icon: <FileText className="w-4 h-4" />, path: "/document-analysis" },
+        { name: "Audit Logs", icon: <Clipboard className="w-4 h-4" />, path: "/audit-logs" },
+        { name: "Analytics Hub", icon: <BarChart className="w-4 h-4" />, path: "/dashboard" },
+        { name: "Settings", icon: <SettingsIcon className="w-4 h-4" />, path: "/settings" },
     ];
 
     return (
@@ -239,7 +238,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
                         <Link
                             key={item.path}
                             href={item.path}
-                            id={item.path === '/dashboard/reports' ? 'sidebar-reports' : undefined}
+                            id={item.path === '/dashboard' ? 'sidebar-reports' : undefined}
                             className={cn(
                                 "flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group",
                                 pathname === item.path

@@ -169,11 +169,10 @@ export function IdentityModule() {
                             </div>
 
                             {/* Result verdict banner */}
-                            <div className={`flex items-center gap-3 px-6 py-3 rounded-2xl border ${
-                                (result.verdict || '').toString().includes('VERIF') || (result.verdict || '').toString().includes('GENUINE')
+                            <div className={`flex items-center gap-3 px-6 py-3 rounded-2xl border ${(result.verdict || '').toString().includes('VERIF') || (result.verdict || '').toString().includes('GENUINE')
                                     ? 'bg-[#00c85310] border-[#00c85330] text-[#00c853]'
                                     : 'bg-[#ff174410] border-[#ff174430] text-[#ff1744]'
-                            }`}>
+                                }`}>
                                 <CheckCircle2 className="w-5 h-5" />
                                 <span className="text-xs font-black uppercase tracking-widest">Forensic Verdict: {result.verdict}</span>
                             </div>

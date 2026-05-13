@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # Gemini API
     GEMINI_API_KEY: Optional[str] = None
     
+    # AWS S3 Configuration
+    AWS_ACCESS_KEY_ID: Optional[str] = os.getenv("AWS_ACCESS_KEY_ID", "your_access_key")
+    AWS_SECRET_ACCESS_KEY: Optional[str] = os.getenv("AWS_SECRET_ACCESS_KEY", "your_secret_key")
+    AWS_REGION: str = os.getenv("AWS_REGION", "your_region")
+    S3_BUCKET_NAME: str = os.getenv("S3_BUCKET_NAME", "your-bucket-name")
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

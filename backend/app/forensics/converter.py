@@ -17,7 +17,7 @@ class DocumentConverter:
             os.makedirs(output_dir, exist_ok=True)
             
         doc = fitz.open(pdf_path)
-        image_paths = []
+        image_paths = [] 
         
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)

@@ -100,7 +100,7 @@ export default function LoginPage() {
                 localStorage.removeItem("rememberedPassword");
             }
 
-            router.push("/dashboard");
+            router.push("/threat-intelligence");
         } catch (err: any) {
             setError(err.message);
         } finally {
