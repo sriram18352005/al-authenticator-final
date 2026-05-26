@@ -50,9 +50,31 @@ for key, val in session_defaults.items():
 # --- PART 2 — THEME CSS ---
 light_css = """
 <style>
-.stApp {
-    background-color: #f4f6fa !important;
-    color: #1a1a2e;
+:root, html, body {
+    --page-bg: #f4f6fa;
+    --card-bg: #ffffff;
+    --card-border: #e0e8f0;
+    --info-bg: #f0f9ff;
+    --info-border: #00d4aa;
+    --text-main: #1a1a2e;
+    --text-muted: #546e7a;
+}
+.stApp, [data-testid="stAppViewContainer"], html, body {
+    background-color: var(--page-bg) !important;
+    color: var(--text-main);
+}
+[data-testid="stHeader"] {
+    background-color: transparent !important;
+}
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
+code {
+    background-color: var(--card-bg) !important;
+    color: var(--text-main) !important;
+    border: 1px solid var(--card-border) !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
 }
 p, span, label {
     font-weight: 500;
@@ -61,11 +83,11 @@ p, span, label {
     color: inherit;
 }
 .stApp h1 {
-    color: #0a0f1e !important;
+    color: var(--text-main) !important;
     font-weight: 800 !important;
 }
 .stApp h2, .stApp h3 {
-    color: #0a0f1e !important;
+    color: var(--text-main) !important;
     font-weight: 700 !important;
 }
 section[data-testid="stSidebar"] {
@@ -87,7 +109,7 @@ section[data-testid="stSidebar"] * {
 .stTabs [data-baseweb="tab"] {
     font-weight: 600 !important;
     font-size: 14px !important;
-    color: #546e7a !important;
+    color: var(--text-muted) !important;
 }
 .stTabs [aria-selected="true"] {
     color: #00d4aa !important;
@@ -95,36 +117,64 @@ section[data-testid="stSidebar"] * {
     background: transparent !important;
 }
 .main .block-container {
-    padding-top: 2rem !important;
+    padding-top: 1rem !important;
     padding-left: 2.5rem !important;
     padding-right: 2.5rem !important;
     max-width: 1200px !important;
 }
-[data-testid="stFileUploader"] {
-    border: 2px dashed #b0bec5 !important;
+[data-testid="stFileUploader"], [data-testid="stFileUploadDropzone"] {
+    background-color: var(--card-bg) !important;
     border-radius: 12px !important;
+}
+[data-testid="stFileUploadDropzone"] {
+    border: 2px dashed var(--card-border) !important;
+}
+[data-testid="stFileUploader"] *, [data-testid="stFileUploadDropzone"] * {
+    color: var(--text-main) !important;
 }
 </style>
 """
 
 dark_css = """
 <style>
-.stApp {
-    background-color: #0a0f1e !important;
-    color: #e0e0e0;
+:root, html, body {
+    --page-bg: #0a0f1e;
+    --card-bg: #0d1526;
+    --card-border: #1a2744;
+    --info-bg: #0d1526;
+    --info-border: #00d4aa;
+    --text-main: #ffffff;
+    --text-muted: #8aa4c0;
+}
+.stApp, [data-testid="stAppViewContainer"], html, body {
+    background-color: var(--page-bg) !important;
+    color: var(--text-main);
+}
+[data-testid="stHeader"] {
+    background-color: transparent !important;
+}
+div[data-testid="stDecoration"] {
+    display: none !important;
+}
+code {
+    background-color: var(--card-bg) !important;
+    color: var(--text-main) !important;
+    border: 1px solid var(--card-border) !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
 }
 .stMarkdown {
     color: inherit;
 }
 .stApp h1, .stApp h2, .stApp h3 {
-    color: #ffffff !important;
+    color: var(--text-main) !important;
 }
 section[data-testid="stSidebar"] {
-    background-color: #0d1526 !important;
-    border-right: 1px solid #1a2744 !important;
+    background-color: var(--card-bg) !important;
+    border-right: 1px solid var(--card-border) !important;
 }
 section[data-testid="stSidebar"] * {
-    color: #ffffff !important;
+    color: var(--text-main) !important;
 }
 .stButton > button {
     background: linear-gradient(
@@ -136,13 +186,13 @@ section[data-testid="stSidebar"] * {
     font-weight: 700 !important;
 }
 div[data-testid="stMetric"] {
-    background-color: #0d1526 !important;
-    border: 0.5px solid #1a2744 !important;
+    background-color: var(--card-bg) !important;
+    border: 0.5px solid var(--card-border) !important;
     border-radius: 12px !important;
     padding: 16px !important;
 }
 .stTabs [data-baseweb="tab"] {
-    color: #8aa4c0 !important;
+    color: var(--text-muted) !important;
     font-weight: 600 !important;
 }
 .stTabs [aria-selected="true"] {
@@ -151,15 +201,25 @@ div[data-testid="stMetric"] {
     background: transparent !important;
 }
 .stTextInput > div > div > input {
-    background-color: #0d1526 !important;
-    color: #ffffff !important;
-    border: 0.5px solid #1a2744 !important;
+    background-color: var(--card-bg) !important;
+    color: var(--text-main) !important;
+    border: 0.5px solid var(--card-border) !important;
 }
 .main .block-container {
-    padding-top: 2rem !important;
+    padding-top: 1rem !important;
     padding-left: 2.5rem !important;
     padding-right: 2.5rem !important;
     max-width: 1200px !important;
+}
+[data-testid="stFileUploader"], [data-testid="stFileUploadDropzone"] {
+    background-color: var(--card-bg) !important;
+    border-radius: 12px !important;
+}
+[data-testid="stFileUploadDropzone"] {
+    border: 2px dashed var(--card-border) !important;
+}
+[data-testid="stFileUploader"] *, [data-testid="stFileUploadDropzone"] * {
+    color: var(--text-main) !important;
 }
 </style>
 """
@@ -556,13 +616,13 @@ def show_sidebar():
 # --- PART 5 — VEHICLE VALIDATION LOGIC ---
 def show_vehicle_validation():
     st.markdown("""
-    <div style='background:#ffffff;
-    border:1.5px solid #e0e8f0;
+    <div style='background:var(--card-bg);
+    border:1.5px solid var(--card-border);
     border-radius:16px;padding:24px;
     margin-bottom:20px'>
-    <h3 style='margin:0 0 4px 0'>
+    <h3 style='margin:0 0 4px 0;color:var(--text-main)'>
     Vehicle Identity Scan</h3>
-    <p style='color:#546e7a;font-size:13px;
+    <p style='color:var(--text-muted);font-size:13px;
     margin:0'>Upload RC certificate, chassis plate
     image, or any vehicle document</p>
     </div>
@@ -958,13 +1018,13 @@ def is_blank_document(file_bytes, filename):
 # --- PART 9 — TICKET VALIDATION LOGIC ---
 def show_ticket_validation():
     st.markdown("""
-    <div style='background:#ffffff;
-    border:1.5px solid #e0e8f0;
+    <div style='background:var(--card-bg);
+    border:1.5px solid var(--card-border);
     border-radius:16px;padding:24px;
     margin-bottom:20px'>
-    <h3 style='margin:0 0 4px 0'>
+    <h3 style='margin:0 0 4px 0;color:var(--text-main)'>
     Ticket Forensic Validation</h3>
-    <p style='color:#546e7a;font-size:13px;
+    <p style='color:var(--text-muted);font-size:13px;
     margin:0'>
     Validate warranty, invoice, investigation
     and estimation documents</p>
@@ -1002,11 +1062,11 @@ def show_ticket_validation():
 
 def show_single_ticket():
     st.markdown("""
-    <div style='background:#f0f9ff;
-    border-left:4px solid #00d4aa;
+    <div style='background:var(--info-bg);
+    border-left:4px solid var(--info-border);
     border-radius:0 8px 8px 0;
     padding:12px 16px;margin-bottom:16px'>
-    <span style='color:#0a0f1e;font-weight:600;font-size:13px'>
+    <span style='color:var(--text-main);font-weight:600;font-size:13px'>
     📁 Click <b>Select Local Folder</b> and choose your ticket folder. The system will automatically validate the folder name as the Ticket ID.
     </span>
     </div>
@@ -1692,14 +1752,14 @@ def group_files_by_ticket(uploaded_files):
 
 def show_batch_tickets():
     st.markdown("""
-    <div style='background:#f0f9ff;
-    border-left:4px solid #00d4aa;
+    <div style='background:var(--info-bg);
+    border-left:4px solid var(--info-border);
     border-radius:0 8px 8px 0;
     padding:14px 16px;margin-bottom:16px'>
-    <b style='color:#0a0f1e'>
+    <b style='color:var(--text-main)'>
     📁 How to upload batch folder:
     </b><br>
-    <span style='color:#546e7a;font-size:13px'>
+    <span style='color:var(--text-muted);font-size:13px'>
     1. Click Browse files below<br>
     2. Navigate to your batch folder<br>
     3. Select ALL files inside
@@ -1776,25 +1836,25 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
 
         # Batch summary header
         st.markdown(f"""
-        <div style='background:#0d1526;
-        border:1.5px solid #1a2744;
+        <div style='background:var(--card-bg);
+        border:1.5px solid var(--card-border);
         border-radius:12px;padding:16px 20px;
         margin:12px 0;display:flex;
         justify-content:space-between;
         align-items:center'>
         <div>
-        <div style='color:#00d4aa;font-size:11px;
+        <div style='color:var(--info-border);font-size:11px;
         letter-spacing:0.1em;font-weight:600;
         margin-bottom:4px'>BATCH FOLDER</div>
-        <div style='color:#ffffff;font-size:16px;
+        <div style='color:var(--text-main);font-size:16px;
         font-weight:700'>
         {batch_name or "Uploaded Batch"}
         </div>
         </div>
         <div style='text-align:right'>
-        <div style='color:#00d4aa;font-size:24px;
+        <div style='color:var(--info-border);font-size:24px;
         font-weight:800'>{len(groups)}</div>
-        <div style='color:#8aa4c0;font-size:12px'>
+        <div style='color:var(--text-muted);font-size:12px'>
         Ticket folders detected</div>
         </div>
         </div>
