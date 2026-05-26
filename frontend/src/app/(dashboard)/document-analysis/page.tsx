@@ -1,19 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Shield, Landmark, Car, Ticket } from "lucide-react";
+import { Car, Ticket } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { IdentityModule } from "@/components/forensics/IdentityModule";
-import { FinanceModule } from "@/components/forensics/FinanceModule";
 import { VehicleModule } from "@/components/forensics/VehicleModule";
 import { TicketValidationModule } from "@/components/forensics/TicketValidationModule";
 
 export default function AnalysisPage() {
-    const [activeTab, setActiveTab] = useState<"identity" | "finance" | "vehicle" | "ticket">("vehicle");
+    const [activeTab, setActiveTab] = useState<"vehicle" | "ticket">("vehicle");
 
     const tabs = [
-        { id: "identity", label: "Identity", icon: <Shield className="w-4 h-4" /> },
-        { id: "finance", label: "Finance", icon: <Landmark className="w-4 h-4" /> },
         { id: "vehicle", label: "Vehicle", icon: <Car className="w-4 h-4" /> },
         { id: "ticket", label: "Ticket Validation", icon: <Ticket className="w-4 h-4" /> },
     ] as const;
@@ -47,8 +43,6 @@ export default function AnalysisPage() {
 
                 {/* Module Rendering */}
                 <div className="min-h-[600px]">
-                    {activeTab === "identity" && <IdentityModule />}
-                    {activeTab === "finance" && <FinanceModule />}
                     {activeTab === "vehicle" && <VehicleModule />}
                     {activeTab === "ticket" && <TicketValidationModule />}
                 </div>

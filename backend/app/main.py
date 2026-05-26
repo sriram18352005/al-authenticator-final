@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from app.api.endpoints import documents, auth
+from app.api.endpoints import auth
 from app.api.deps import get_current_user
 from app.db import engine, get_db
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,11 +49,8 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(documents.router, prefix=f"{settings.API_V1_STR}/documents", tags=["documents"])
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
 
-from app.api.endpoints import feedback
-app.include_router(feedback.router, prefix=f"{settings.API_V1_STR}/documents", tags=["feedback"])
 
 from app.api.endpoints import analytics
 app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}/analytics", tags=["analytics"])
@@ -93,6 +90,22 @@ app.mount("/static/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploa
 @app.get("/")
 async def root():
     return {"message": "AL Authenticator API is online", "status": "healthy"}
+
+@app.get("/api/test-easyocr")
+async def test_easyocr():
+    try:
+        import easyocr
+        # Initialize reader just to test
+        reader = easyocr.Reader(['en'], gpu=False)
+        return {
+            "status": "EasyOCR working",
+            "available": True
+        }
+    except Exception as e:
+        return {
+            "status": f"EasyOCR failed: {str(e)}",
+            "available": False
+        }
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)

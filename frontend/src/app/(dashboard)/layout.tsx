@@ -88,17 +88,17 @@ function CommandPalette({ open, setOpen, router }: { open: boolean, setOpen: any
 const TOUR_STEPS = [
     {
         title: 'Welcome to Verentis',
-        body: 'The Forensic Detection Intelligence platform — an AI-powered suite for Identity, Finance, and Automotive document verification.',
+        body: 'The Forensic Detection Intelligence platform — an AI-powered suite for Automotive and Ticket validation document verification.',
         step: 1
     },
     {
         title: 'Threat Intelligence Hub',
-        body: 'Your command center showing live forensic trends, session data, and geographic detection signals in real time.',
+        body: 'Your command center showing live forensic trends, session data, and detection signals in real time.',
         step: 2
     },
     {
         title: 'Document Analysis',
-        body: 'Upload Identity, Finance, or Vehicle documents for multi-spectral forensic analysis and instant verdicts.',
+        body: 'Upload Vehicle or Ticket documents for multi-spectral forensic analysis and instant verdicts.',
         step: 3
     },
     {

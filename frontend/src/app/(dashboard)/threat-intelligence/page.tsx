@@ -490,7 +490,7 @@ export default function DashboardPage() {
                             </div>
                         </div>
                         <p className="text-sm text-[#4a5568] font-medium mt-1">
-                            Synchronized forensic monitoring across <span className="text-[#00c2cb] font-bold">Identity</span>, <span className="text-[#00c2cb] font-bold">Finance</span>, and <span className="text-[#00c2cb] font-bold">Automotive</span> intelligence sectors.
+                            Real-time forensic monitoring and threat detection across <span className="text-[#00c2cb] font-bold">Automotive</span> and <span className="text-[#00c2cb] font-bold">Ticket Validation</span> intelligence sectors.
                         </p>
                     </div>
                     <div className="flex items-center gap-4">
@@ -676,3 +676,15 @@ function KPICard({ title, value, sub, icon, color, sparkData, sparkColor }: { ti
         </motion.div>
     );
 }
+
+
+
+
+
+
+
+
+
+
+
+

@@ -5,10 +5,18 @@ import re
 import os
 import tempfile
 import numpy as np
+import io
+import cv2
 from paddleocr import PaddleOCR
 from PIL import Image
 import fitz # PyMuPDF
-import io
+
+# pdf2image for scanned PDFs
+try:
+    from pdf2image import convert_from_path
+    PDF2IMAGE_AVAILABLE = True
+except ImportError:
+    PDF2IMAGE_AVAILABLE = False
 
 router = APIRouter()
 
@@ -27,6 +35,8 @@ class FileAnalysis(BaseModel):
     confidence: float
     summary: str
     full_text: str
+    ocr_engine: Optional[str] = "unknown"
+    text_type: Optional[str] = "printed"
 
 class InvoiceAmountCheck(BaseModel):
     check: str
@@ -46,10 +56,15 @@ class InvoiceValidationResult(BaseModel):
     total: float
     errors: List[InvoiceAmountCheck]
 
+class BlankFile(BaseModel):
+    filename: str
+    reason: str
+
 class FolderAnalysisResponse(BaseModel):
     analysis: List[FileAnalysis]
     duplicates: List[DuplicatePair]
     invoice_validation: Optional[InvoiceValidationResult] = None
+    blank_files: List[BlankFile] = []
 
 def calculate_similarity(text1: str, text2: str) -> float:
     if not text1 or not text2:
@@ -86,154 +101,313 @@ except ImportError:
 
 print(f"PDF libs: pdfplumber={PDFPLUMBER_AVAILABLE}, pypdf={PYPDF_AVAILABLE}, pdfminer={PDFMINER_AVAILABLE}")
 
-def extract_text_from_file(file_path: str) -> str:
+def preprocess_image(pil_image):
+    try:
+        # Convert to OpenCV
+        img_cv = cv2.cvtColor(
+            np.array(pil_image),
+            cv2.COLOR_RGB2BGR
+        )
+
+        # Step 1 — Upscale if image is small
+        h, w = img_cv.shape[:2]
+        if w < 1000:
+            scale = 1000 / w
+            img_cv = cv2.resize(
+                img_cv, None,
+                fx=scale, fy=scale,
+                interpolation=cv2.INTER_CUBIC
+            )
+            print(f"Upscaled image by {scale:.1f}x")
+
+        # Step 2 — Convert to grayscale
+        gray = cv2.cvtColor(
+            img_cv, cv2.COLOR_BGR2GRAY
+        )
+
+        # Step 3 — Denoise
+        denoised = cv2.fastNlMeansDenoising(
+            gray, h=10
+        )
+
+        # Step 4 — Enhance contrast
+        clahe = cv2.createCLAHE(
+            clipLimit=2.0,
+            tileGridSize=(8, 8)
+        )
+        enhanced = clahe.apply(denoised)
+
+        # Step 5 — Sharpen
+        kernel = np.array([
+            [-1, -1, -1],
+            [-1,  9, -1],
+            [-1, -1, -1]
+        ])
+        sharpened = cv2.filter2D(enhanced, -1, kernel)
+
+        # Convert back to PIL
+        preprocessed = Image.fromarray(sharpened)
+        return preprocessed
+
+    except Exception as e:
+        print(f"Preprocessing error: {e}")
+        return pil_image
+
+def get_paddle_confidence(paddle_result):
+    if not paddle_result or not paddle_result[0]:
+        return 0.0
+    confidences = []
+    for line in paddle_result[0]:
+        if line and len(line) > 1 and line[1]:
+            confidences.append(line[1][1])
+    if not confidences:
+        return 0.0
+    return sum(confidences) / len(confidences)
+
+def get_paddle_text(paddle_result):
+    if not paddle_result or not paddle_result[0]:
+        return ""
+    texts = []
+    for line in paddle_result[0]:
+        if line and len(line) > 1 and line[1]:
+            t = line[1][0]
+            if t and t.strip():
+                texts.append(t.strip())
+    return '\n'.join(texts)
+
+def extract_text_from_file(file_path):
     ext = os.path.splitext(file_path)[1].lower()
-    text = ""
+    print(f"\nProcessing: {os.path.basename(file_path)}")
 
+    # ── PDF FILE ──────────────────────────────
     if ext == '.pdf':
-        # METHOD 1 — pdfplumber (best for text-based PDFs)
-        if PDFPLUMBER_AVAILABLE:
-            try:
-                with pdfplumber.open(file_path) as pdf:
-                    all_text = []
-                    for page in pdf.pages:
-                        t = page.extract_text()
-                        if t and t.strip():
-                            all_text.append(t.strip())
-                    text = "\n".join(all_text)
-                    if text.strip():
-                        print(f"pdfplumber extracted {len(text)} chars from {os.path.basename(file_path)}")
-                        return text.strip()
-            except Exception as e:
-                print(f"pdfplumber error on {os.path.basename(file_path)}: {e}")
 
-        # METHOD 2 — pypdf fallback
-        if PYPDF_AVAILABLE:
-            try:
-                reader = PdfReader(file_path)
-                all_text = []
-                for page in reader.pages:
+        # Try pdfplumber first
+        text = ""
+        try:
+            import pdfplumber
+            with pdfplumber.open(file_path) as pdf:
+                pages = []
+                for page in pdf.pages:
                     t = page.extract_text()
                     if t and t.strip():
-                        all_text.append(t.strip())
-                text = "\n".join(all_text)
-                if text.strip():
-                    print(f"pypdf extracted {len(text)} chars from {os.path.basename(file_path)}")
-                    return text.strip()
-            except Exception as e:
-                print(f"pypdf error on {os.path.basename(file_path)}: {e}")
+                        pages.append(t.strip())
+                text = '\n'.join(pages)
+        except Exception as e:
+            print(f"pdfplumber error: {e}")
 
-        # METHOD 3 — pdfminer fallback
-        if PDFMINER_AVAILABLE:
-            try:
-                extracted = pdfminer_extract(file_path)
-                if extracted and extracted.strip():
-                    print(f"pdfminer extracted {len(extracted)} chars from {os.path.basename(file_path)}")
-                    return extracted.strip()
-            except Exception as e:
-                print(f"pdfminer error on {os.path.basename(file_path)}: {e}")
+        if text and len(text.strip()) > 50:
+            print(f"Digital PDF — {len(text)} chars")
+            return {
+                "text": text.strip(),
+                "engine": "pdfplumber",
+                "text_type": "printed"
+            }
 
-        # METHOD 4 — PaddleOCR for image-based PDFs only
+        # Scanned PDF — convert to images
+        print("Scanned PDF — converting to images")
         try:
-            print(f"Trying PaddleOCR (image-based PDF) for {os.path.basename(file_path)}...")
-            doc = fitz.open(file_path)
+            from pdf2image import convert_from_path
+            images = convert_from_path(
+                file_path, dpi=200
+            )
             all_text = []
-            for page in doc:
-                pix = page.get_pixmap()
-                img_data = pix.tobytes("png")
-                img = Image.open(io.BytesIO(img_data))
-                result = ocr_engine.ocr(np.array(img), cls=True)
-                if result and result[0]:
-                    lines = [line[1][0] for line in result[0] if line and len(line) > 1 and line[1]]
-                    all_text.append(" ".join(lines))
-            doc.close()
-            if all_text:
-                return " ".join(all_text).strip()
+            engine_used = "unknown"
+
+            for i, pil_img in enumerate(images):
+                print(f"Page {i+1}/{len(images)}")
+                result = extract_from_image(pil_img)
+                all_text.append(result["text"])
+                if i == 0:
+                    engine_used = result["engine"]
+
+            combined = '\n'.join(all_text)
+            print(f"Scanned PDF total: {len(combined)} chars")
+            return {
+                "text": combined,
+                "engine": engine_used,
+                "text_type": "scanned_pdf"
+            }
+
         except Exception as e:
-            print(f"PaddleOCR PDF error: {e}")
+            print(f"pdf2image error: {e}")
 
-        print(f"All PDF extraction methods failed for {os.path.basename(file_path)}")
-        return ""
+        return {
+            "text": "",
+            "engine": "failed",
+            "text_type": "unknown"
+        }
 
-    elif ext in ['.jpg', '.jpeg', '.png', '.webp', '.tiff', '.bmp']:
-        # PaddleOCR for image files
+    # ── IMAGE FILE ────────────────────────────
+    elif ext in ['.jpg', '.jpeg', '.png',
+                 '.webp', '.tiff', '.bmp']:
         try:
-            result = ocr_engine.ocr(file_path, cls=True)
-            if result and result[0]:
-                lines = []
-                for line in result[0]:
-                    if line and len(line) > 1 and line[1]:
-                        lines.append(line[1][0])
-                text = "\n".join(lines)
-                return text.strip()
+            pil_image = Image.open(file_path)
+            return extract_from_image(pil_image)
         except Exception as e:
-            print(f"PaddleOCR image error: {e}")
-        return ""
+            print(f"Image error: {e}")
+            return {
+                "text": "",
+                "engine": "failed",
+                "text_type": "unknown"
+            }
 
-    return ""
+    return {
+        "text": "",
+        "engine": "unsupported",
+        "text_type": "unknown"
+    }
 
-def classify_content(text: str, filename: str) -> str:
+
+def extract_from_image(pil_image):
+    if pil_image.mode != 'RGB':
+        pil_image = pil_image.convert('RGB')
+
+    # Step 1 — Preprocess image
+    preprocessed = preprocess_image(pil_image)
+
+    # Step 2 — Run PaddleOCR on preprocessed image
+    paddle_text = ""
+    avg_confidence = 0.0
+
+    try:
+        from paddleocr import PaddleOCR
+        ocr = PaddleOCR(
+            use_angle_cls=True,
+            lang='en',
+            show_log=False
+        )
+        img_cv = cv2.cvtColor(
+            np.array(preprocessed),
+            cv2.COLOR_RGB2BGR
+        )
+        paddle_result = ocr.ocr(img_cv, cls=True)
+
+        if paddle_result and paddle_result[0]:
+            texts = []
+            confidences = []
+            for line in paddle_result[0]:
+                if line and len(line) > 1 and line[1]:
+                    texts.append(line[1][0])
+                    confidences.append(line[1][1])
+            paddle_text = '\n'.join(texts)
+            avg_confidence = (
+                sum(confidences) / len(confidences)
+                if confidences else 0.0
+            )
+
+        print(f"PaddleOCR confidence: {avg_confidence:.2f}")
+        print(f"PaddleOCR chars: {len(paddle_text)}")
+
+    except Exception as e:
+        print(f"PaddleOCR error: {e}")
+
+    # Use PaddleOCR result (Standard engine for both printed/handwritten in this mode)
+    return {
+        "text": paddle_text,
+        "engine": "paddleocr",
+        "text_type": "printed" if avg_confidence > 0.8 else "handwritten/low_conf"
+    }
+
+def classify_content(text: str, filename: str = "") -> str:
     text_upper = text.upper()
-    # Use only the base filename for keyword matching (strip folder prefix)
-    fn = os.path.basename(filename).lower()
+    lines = text_upper.split('\n')
 
-    # --- PHASE 1: STRICT FILENAME PRIORITY (most reliable) ---
-    if any(k in fn for k in ["reject", "rejection"]):
-        return "rejection"
-    if any(k in fn for k in ["estimat", "estimation"]):
-        return "estimate"
-    if any(k in fn for k in ["invest", "investigation", "inves"]):
-        return "investigation"
-    if any(k in fn for k in ["invoice", "bill", "billing"]):
-        return "invoice"
+    # Check first 5 lines for document title
+    title_text = ' '.join(lines[:5])
 
-    # --- PHASE 2: PHRASE-BASED CONTENT DETECTION ---
+    detected_type = "OTHER"
 
-    # 1. REJECTION (highest priority)
-    rejection_phrases = [
-        "WARRANTY REJECTION", "REJECTION REPORT", "REJ-",
-        "CLAIM REJECTED", "WARRANTY CLAIM REJECTED",
-        "REASONS FOR REJECTION", "FINAL DECISION", "APPEAL PROCESS"
-    ]
-    if any(p in text_upper for p in rejection_phrases):
-        return "rejection"
+    # STEP 1 — Title based detection
+    if any(phrase in title_text for phrase in [
+        "VEHICLE INVESTIGATION REPORT",
+        "INVESTIGATION REPORT",
+        "TECHNICAL INSPECTION REPORT",
+        "FIELD INSPECTION REPORT"
+    ]):
+        detected_type = "INVESTIGATION"
+    elif any(phrase in title_text for phrase in [
+        "SERVICE INVOICE",
+        "TAX INVOICE",
+        "INVOICE",
+    ]) and "INVESTIGATION" not in title_text:
+        detected_type = "INVOICE"
+    elif any(phrase in title_text for phrase in [
+        "ESTIMATION REPORT",
+        "SERVICE ESTIMATION",
+        "COST ESTIMATE",
+        "QUOTATION"
+    ]):
+        detected_type = "ESTIMATION"
+    elif any(phrase in title_text for phrase in [
+        "REJECTION REPORT",
+        "WARRANTY REJECTION",
+        "CLAIM REJECTION"
+    ]):
+        detected_type = "REJECTION"
 
-    # 2. ESTIMATION
-    estimation_phrases = [
-        "ESTIMATION REPORT", "SERVICE ESTIMATION", "EST-",
-        "GRAND TOTAL ESTIMATE", "PRE-APPROVAL COST", "COST ESTIMATE",
-        "ESTIMATED COST"
-    ]
-    if any(p in text_upper for p in estimation_phrases):
-        return "estimate"
-    if "PARTS COST" in text_upper and "LABOUR COST" in text_upper:
-        return "estimate"
+    # STEP 2 — Full text based detection
+    if detected_type == "OTHER":
+        rejection_phrases = [
+            "WARRANTY REJECTION REPORT",
+            "WARRANTY CLAIM REJECTED",
+            "REASONS FOR REJECTION",
+            "FINAL DECISION: WARRANTY CLAIM REJECTED"
+        ]
+        if any(phrase in text_upper for phrase in rejection_phrases):
+            detected_type = "REJECTION"
 
-    # 3. INVESTIGATION
-    investigation_phrases = [
-        "INVESTIGATION REPORT", "VEHICLE INVESTIGATION",
-        "INVESTIGATION COMPLETE", "INVESTIGATION FINDINGS",
-        "INVESTIGATION VERDICT", "COMPLAINT INVESTIGATION",
-        "FIELD INSPECTION", "TECHNICAL INSPECTION"
-    ]
-    if any(p in text_upper for p in investigation_phrases):
-        return "investigation"
+        elif any(phrase in text_upper for phrase in [
+            "SERVICE ESTIMATION REPORT",
+            "PRE-APPROVAL COST ESTIMATE",
+            "GRAND TOTAL ESTIMATE",
+            "ESTIMATED COST BREAKDOWN",
+            "PARTS COST",
+            "LABOUR COST"
+        ]):
+            detected_type = "ESTIMATION"
 
-    # 4. INVOICE
-    invoice_phrases = [
-        "SERVICE INVOICE", "TAX INVOICE", "INVOICE NO",
-        "PAYMENT STATUS", "AMOUNT PAID", "PAYMENT RECEIVED"
-    ]
-    if any(p in text_upper for p in invoice_phrases):
-        return "invoice"
-    if "GST" in text_upper and "PAID" in text_upper:
-        return "invoice"
+        elif any(phrase in text_upper for phrase in [
+            "VEHICLE INVESTIGATION REPORT",
+            "INVESTIGATION COMPLETE",
+            "INVESTIGATION FINDINGS",
+            "INVESTIGATION VERDICT",
+            "COMPLAINT INVESTIGATION",
+            "INSPECTOR SIGNATURE",
+            "VALID WARRANTY CLAIM",
+            "DEFECT CONFIRMED"
+        ]):
+            detected_type = "INVESTIGATION"
 
-    # 5. IMAGE (extension check only)
-    if any(fn.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp", ".tiff", ".bmp"]):
-        return "image"
+        elif any(phrase in text_upper for phrase in [
+            "SERVICE INVOICE",
+            "TAX INVOICE",
+            "PAYMENT STATUS: PAID",
+            "AUTHORISED SIGNATORY",
+            "GST @ 18%",
+            "SUB TOTAL",
+            "FINAL TOTAL",
+            "AMOUNT PAID",
+            "BANK TRANSFER"
+        ]):
+            detected_type = "INVOICE"
+        
+        else:
+            ext = filename.split('.')[-1].lower() if filename else ''
+            if ext in ['jpg','jpeg','png','webp','tiff','bmp']:
+                detected_type = "IMAGE"
+            else:
+                detected_type = "SUPPORTING_DOC"
 
-    return "other"
+    print(f"\n=== File Type Detection ===")
+    print(f"Filename: {filename}")
+    print(f"Text preview (first 300 chars):")
+    print(text[:300])
+    print(f"Title lines: {lines[:3]}")
+    print(f"Detected type: {detected_type}")
+    print(f"===========================\n")
+
+    return detected_type
 
 def extract_amounts_from_invoice(text: str) -> dict:
     """Extract numeric amounts from invoice text using regex."""
@@ -324,6 +498,50 @@ def validate_invoice_amounts(amounts: dict) -> InvoiceValidationResult:
         errors=errors
     )
 
+def is_blank_file(file_path, filename):
+    import os
+
+    # Check file size
+    file_size = os.path.getsize(file_path)
+    if file_size == 0:
+        return True, "File is empty (0 bytes)"
+    if file_size < 2000:
+        return True, f"File is too small ({file_size} bytes)"
+
+    # Try to extract text
+    ext = filename.split('.')[-1].lower()
+    text = ""
+
+    if ext == 'pdf':
+        try:
+            import pdfplumber
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    t = page.extract_text()
+                    if t:
+                        text += t
+        except:
+            pass
+    elif ext in ['jpg','jpeg','png','webp','tiff']:
+        try:
+            from paddleocr import PaddleOCR
+            # Using the globally initialized ocr_engine
+            global ocr_engine
+            result = ocr_engine.ocr(file_path, cls=True)
+            if result and result[0]:
+                text = ' '.join([
+                    line[1][0]
+                    for line in result[0]
+                    if line and line[1]
+                ])
+        except:
+            pass
+
+    if len(text.strip()) < 20:
+        return True, "No readable text detected — document appears blank"
+
+    return False, ""
+
 @router.post("/analyze-folder", response_model=FolderAnalysisResponse)
 async def analyze_folder(files: List[UploadFile] = File(...)):
     if not files:
@@ -345,19 +563,32 @@ async def analyze_folder(files: List[UploadFile] = File(...)):
 
                 print(f"Processing: {base_filename} ({len(content)} bytes) at {file_path}")
 
-                # Extract text using multi-method approach
-                text = extract_text_from_file(file_path)
-                print(f"  -> Extracted {len(text)} chars from {base_filename}")
+                is_blank, blank_reason = is_blank_file(file_path, base_filename)
+                if is_blank:
+                    print(f"File {base_filename} is blank: {blank_reason}")
+                    continue
 
+                # Extract text using multi-method approach
+                result = extract_text_from_file(file_path)
+                text = result["text"]
+                engine_used = result["engine"]
+                text_type = result["text_type"]
+                
                 detected_type = classify_content(text, base_filename)
-                print(f"  -> Detected type: {detected_type}")
+                
+                print(f"File: {base_filename}")
+                print(f"Extracted text preview: {text[:200]}")
+                print(f"Detected type: {detected_type}")
+                print("---")
 
                 analysis_results.append(FileAnalysis(
                     filename=base_filename,
                     detected_type=detected_type,
                     confidence=0.9 if text else 0.5,
                     summary=text[:120] + "..." if len(text) > 120 else (text if text else "No text extracted"),
-                    full_text=text  # Always return raw text (empty string if none)
+                    full_text=text,  # Always return raw text (empty string if none)
+                    ocr_engine=engine_used,
+                    text_type=text_type
                 ))
 
                 if text:
@@ -374,7 +605,7 @@ async def analyze_folder(files: List[UploadFile] = File(...)):
                 
         # Invoice amount validation — find the invoice file and validate
         invoice_validation: Optional[InvoiceValidationResult] = None
-        invoice_texts = [(r.filename, r.full_text) for r in analysis_results if r.detected_type == "invoice"]
+        invoice_texts = [(r.filename, r.full_text) for r in analysis_results if r.detected_type == "INVOICE"]
         if invoice_texts:
             inv_filename, inv_text = invoice_texts[0]
             print(f"Running invoice amount validation on: {inv_filename}")
@@ -389,21 +620,44 @@ async def analyze_folder(files: List[UploadFile] = File(...)):
                 errors=[]
             )
 
-        # Duplicate detection
+        # Duplicate detection based on type
         duplicates = []
-        filenames = list(file_texts.keys())
-        for i in range(len(filenames)):
-            for j in range(i + 1, len(filenames)):
-                f1 = filenames[i]
-                f2 = filenames[j]
-                sim = calculate_similarity(file_texts[f1], file_texts[f2])
-                if sim > 0.8:
-                    duplicates.append(DuplicatePair(file1=f1, file2=f2, similarity=sim))
+        type_to_files = {}
+        for r in analysis_results:
+            ftype = r.detected_type
+            if ftype in ['INVESTIGATION', 'INVOICE', 'ESTIMATION', 'REJECTION']:
+                if ftype not in type_to_files:
+                    type_to_files[ftype] = []
+                type_to_files[ftype].append(r.filename)
+                
+        for ftype, files_list in type_to_files.items():
+            if len(files_list) > 1:
+                # Add pairs of duplicates
+                for i in range(len(files_list)):
+                    for j in range(i + 1, len(files_list)):
+                        duplicates.append(DuplicatePair(
+                            file1=files_list[i],
+                            file2=files_list[j],
+                            similarity=1.0  # Exact type match
+                        ))
+
+        # Determine blank files
+        processed_files = {r.filename for r in analysis_results}
+        blank_files = []
+        for file in files:
+            base_filename = os.path.basename(file.filename)
+            if base_filename not in processed_files:
+                file_path = os.path.join(temp_dir, base_filename)
+                if os.path.exists(file_path):
+                    is_blank, blank_reason = is_blank_file(file_path, base_filename)
+                    if is_blank:
+                        blank_files.append(BlankFile(filename=base_filename, reason=blank_reason))
 
         return FolderAnalysisResponse(
             analysis=analysis_results,
             duplicates=duplicates,
-            invoice_validation=invoice_validation
+            invoice_validation=invoice_validation,
+            blank_files=blank_files
         )
     except Exception as e:
         print(f"CRITICAL ERROR in analyze_folder: {e}")

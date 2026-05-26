@@ -15,6 +15,7 @@ interface Step { id: string; label: string; status: StepStatus; detail: string; 
 interface FileInfo {
   name: string; type: FileType; size: number; file: File;
   summary?: string; confidence?: number; fullText?: string;
+  ocr_engine?: string; text_type?: string;
 }
 interface DuplicatePair { file1: string; file2: string; similarity: number; }
 
@@ -165,7 +166,7 @@ export function TicketValidationModule() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<FileInfo[]>([]);
   const [detectedTicketId, setDetectedTicketId] = useState<string>("");
-  const [ocrPreview, setOcrPreview] = useState<{ name: string, text: string } | null>(null);
+  const [ocrPreview, setOcrPreview] = useState<{ name: string, text: string, engine?: string, type?: string } | null>(null);
   const [filePreviewResult, setFilePreviewResult] = useState<TicketResult | null>(null);
 
   // BATCH MODE STATE
@@ -309,8 +310,8 @@ export function TicketValidationModule() {
     // STEP 1 — Folder & Ticket ID
     update("folder_validation", "processing", "Validating folder name...");
     await delay(400);
-    if (!/^\d{10}$/.test(ticketId)) {
-      update("folder_validation", "fail", "Folder name must be a 10 digit Ticket ID");
+    if (!/^4\d{9}$/.test(ticketId)) {
+      update("folder_validation", "fail", "Folder name must be exactly 10 digits and start with 4");
       throw new Error("Invalid Ticket ID");
     }
     update("folder_validation", "pass", `Ticket ID: ${ticketId} detected`);
@@ -324,7 +325,7 @@ export function TicketValidationModule() {
 
     try {
       const formData = new FormData();
-      rawFiles.forEach(f => formData.append("files", f));
+      rawFiles.forEach(f => formData.append("files", f, (f as any).webkitRelativePath || f.name));
 
       const resp = await fetch("http://localhost:8000/api/v1/tickets/analyze-folder", {
         method: "POST",
@@ -338,14 +339,16 @@ export function TicketValidationModule() {
 
         forensicFiles = files.map(f => {
           const analysis = data.analysis.find((a: any) => a.filename === f.name);
-          return {
-            ...f,
-            type: (analysis?.detected_type || f.type) as FileType,
-            summary: analysis?.summary || "No content summary",
-            confidence: analysis?.confidence || 0.5,
-            fullText: analysis?.full_text || ""
-          };
-        });
+            return {
+              ...f,
+              type: (analysis?.detected_type || f.type) as FileType,
+              summary: analysis?.summary || "No content summary",
+              confidence: analysis?.confidence || 0.5,
+              fullText: analysis?.full_text || "",
+              ocr_engine: analysis?.ocr_engine || "unknown",
+              text_type: analysis?.text_type || "printed"
+            };
+          });
         update("file_detection", "pass", `${files.length} files analyzed via content keywords`);
       } else {
         ocrFailed = true;
@@ -597,10 +600,10 @@ export function TicketValidationModule() {
       const path = (file as any).webkitRelativePath;
       const pathParts = path.split('/');
 
-      // Find the first part that looks like a 10-digit ID
+      // Find the first part that looks like a 10-digit ID starting with 4
       let foundId = "";
       for (const part of pathParts) {
-        if (/^\d{10}$/.test(part)) {
+        if (/^4\d{9}$/.test(part)) {
           foundId = part;
           break;
         }
@@ -1122,7 +1125,12 @@ export function TicketValidationModule() {
                           </div>
                           <div
                             style={{ flex: 1, cursor: "pointer" }}
-                            onClick={() => setOcrPreview({ name: file.name, text: file.fullText || "No text available" })}
+                            onClick={() => setOcrPreview({ 
+                              name: file.name, 
+                              text: file.fullText || "No text available",
+                              engine: file.ocr_engine,
+                              type: file.text_type
+                            })}
                           >
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                               <div style={{ fontSize: 12, fontWeight: 700, color: isDuplicate ? "#ff1744" : "inherit" }}>{file.name}</div>
@@ -1137,6 +1145,25 @@ export function TicketValidationModule() {
                               <span style={{ fontSize: 9, fontWeight: 800, color: isDuplicate ? "#ff1744" : "#00c2cb", textTransform: "uppercase", padding: "1px 4px", background: isDuplicate ? "rgba(255,23,68,0.1)" : "rgba(0,194,203,0.1)", borderRadius: 3 }}>
                                 {file.type} {isDuplicate && "· DUPLICATE ⚠"}
                               </span>
+                              {file.ocr_engine && (
+                                <span style={{ 
+                                  fontSize: 9, 
+                                  fontWeight: 800, 
+                                  padding: "1px 4px", 
+                                  borderRadius: 3,
+                                  background: file.ocr_engine === "pdfplumber" ? "rgba(0,200,83,0.1)" : 
+                                              file.ocr_engine === "paddleocr" ? "rgba(49,130,206,0.1)" :
+                                              file.ocr_engine === "easyocr" ? "rgba(128,90,213,0.1)" : "rgba(255,171,0,0.1)",
+                                  color: file.ocr_engine === "pdfplumber" ? "#00c853" : 
+                                         file.ocr_engine === "paddleocr" ? "#3182ce" :
+                                         file.ocr_engine === "easyocr" ? "#805ad5" : "#ffab00",
+                                  textTransform: "uppercase"
+                                }}>
+                                  {file.ocr_engine === "pdfplumber" ? "PDF TEXT" : 
+                                   file.ocr_engine === "paddleocr" ? "PRINTED" :
+                                   file.ocr_engine === "easyocr" ? "HANDWRITTEN" : "FALLBACK"}
+                                </span>
+                              )}
                               <span style={{ fontSize: 9, color: "#4a5568" }}>{(file.size / 1024).toFixed(1)} KB</span>
                             </div>
                             {file.summary && (
@@ -1646,7 +1673,14 @@ export function TicketValidationModule() {
             {/* MODAL TITLE BAR */}
             <div style={{ padding: "20px 24px", borderBottom: "1px solid #1a2744", display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.02)" }}>
               <div>
-                <div style={{ fontSize: 10, fontWeight: 900, color: "#00d4aa", textTransform: "uppercase", letterSpacing: "2px", marginBottom: 4 }}>OCR Text Preview</div>
+                <div style={{ fontSize: 10, fontWeight: 900, color: "#00d4aa", textTransform: "uppercase", letterSpacing: "2px", marginBottom: 4 }}>
+                  OCR Text Preview
+                  {ocrPreview.engine && (
+                    <span style={{ marginLeft: 12, color: "#4a5568", background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: 4, textTransform: "none", fontSize: 9 }}>
+                      OCR Engine: {ocrPreview.engine === "easyocr" ? "EasyOCR" : ocrPreview.engine === "paddleocr" ? "PaddleOCR" : ocrPreview.engine} ({ocrPreview.type === "handwritten" ? "Handwritten detected" : ocrPreview.type === "printed" ? "Printed text" : ocrPreview.type === "pdfplumber" ? "Digital PDF" : ocrPreview.type})
+                    </span>
+                  )}
+                </div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: "#e8ecf4" }}>{ocrPreview.name}</div>
               </div>
               <button

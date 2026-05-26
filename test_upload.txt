@@ -1,7 +1,0 @@
-This is a test document for forensic analysis.
-Bank: SBI
-Branch: MUMBAI
-IFSC: SBIN0001234
-Account: 12345678901
-Balance: 1000.00
-17 Feb 2026 UPI/123/TEST 0.00 1000.00
