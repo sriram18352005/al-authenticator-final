@@ -96,15 +96,23 @@ section[data-testid="stSidebar"] {
 section[data-testid="stSidebar"] * {
     color: #ffffff !important;
 }
-.stButton > button {
+.stButton > button,
+[data-testid="stDownloadButton"] button,
+[data-testid="baseButton-secondary"],
+[data-testid="baseButton-primary"] {
     background: linear-gradient(
         135deg, #00d4aa, #00b894
     ) !important;
-    color: #ffffff !important;
+    color: #0a0f1e !important;
     border: none !important;
     border-radius: 10px !important;
     font-weight: 700 !important;
     font-size: 14px !important;
+}
+.stButton > button:hover,
+[data-testid="stDownloadButton"] button:hover {
+    color: #ffffff !important;
+    border: none !important;
 }
 .stTabs [data-baseweb="tab"] {
     font-weight: 600 !important;
@@ -122,15 +130,25 @@ section[data-testid="stSidebar"] * {
     padding-right: 2.5rem !important;
     max-width: 1200px !important;
 }
-[data-testid="stFileUploader"], [data-testid="stFileUploadDropzone"] {
-    background-color: var(--card-bg) !important;
-    border-radius: 12px !important;
+[data-testid="stFileUploader"] {
+    background-color: transparent !important;
 }
 [data-testid="stFileUploadDropzone"] {
+    background-color: var(--card-bg) !important;
     border: 2px dashed var(--card-border) !important;
+    border-radius: 12px !important;
 }
 [data-testid="stFileUploader"] *, [data-testid="stFileUploadDropzone"] * {
     color: var(--text-main) !important;
+}
+[data-testid="stFileUploadDropzone"] * {
+    background-color: transparent !important;
+}
+[data-testid="stFileUploadDropzone"] button {
+    background-color: var(--info-border) !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 6px !important;
 }
 </style>
 """
@@ -176,7 +194,10 @@ section[data-testid="stSidebar"] {
 section[data-testid="stSidebar"] * {
     color: var(--text-main) !important;
 }
-.stButton > button {
+.stButton > button,
+[data-testid="stDownloadButton"] button,
+[data-testid="baseButton-secondary"],
+[data-testid="baseButton-primary"] {
     background: linear-gradient(
         135deg, #00d4aa, #00b894
     ) !important;
@@ -185,11 +206,19 @@ section[data-testid="stSidebar"] * {
     border-radius: 10px !important;
     font-weight: 700 !important;
 }
+.stButton > button:hover,
+[data-testid="stDownloadButton"] button:hover {
+    color: #ffffff !important;
+    border: none !important;
+}
 div[data-testid="stMetric"] {
     background-color: var(--card-bg) !important;
     border: 0.5px solid var(--card-border) !important;
     border-radius: 12px !important;
     padding: 16px !important;
+}
+div[data-testid="stMetric"] * {
+    color: var(--text-main) !important;
 }
 .stTabs [data-baseweb="tab"] {
     color: var(--text-muted) !important;
@@ -211,15 +240,25 @@ div[data-testid="stMetric"] {
     padding-right: 2.5rem !important;
     max-width: 1200px !important;
 }
-[data-testid="stFileUploader"], [data-testid="stFileUploadDropzone"] {
-    background-color: var(--card-bg) !important;
-    border-radius: 12px !important;
+[data-testid="stFileUploader"] {
+    background-color: transparent !important;
 }
 [data-testid="stFileUploadDropzone"] {
+    background-color: var(--card-bg) !important;
     border: 2px dashed var(--card-border) !important;
+    border-radius: 12px !important;
 }
 [data-testid="stFileUploader"] *, [data-testid="stFileUploadDropzone"] * {
     color: var(--text-main) !important;
+}
+[data-testid="stFileUploadDropzone"] * {
+    background-color: transparent !important;
+}
+[data-testid="stFileUploadDropzone"] button {
+    background-color: var(--info-border) !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 6px !important;
 }
 </style>
 """
@@ -2234,6 +2273,7 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
 def generate_batch_excel(results):
     import pandas as pd
     import io
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
     
     data = []
     for r in results:
@@ -2264,11 +2304,75 @@ def generate_batch_excel(results):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Batch Results')
-        
         worksheet = writer.sheets['Batch Results']
+        
+        # --- EXCEL STYLING DEFINITIONS ---
+        header_fill = PatternFill(start_color="0D1526", end_color="0D1526", fill_type="solid")
+        header_font = Font(color="FFFFFF", bold=True)
+        center_align = Alignment(horizontal="center", vertical="center")
+        
+        # Conditional colors
+        accept_fill = PatternFill(start_color="E6F4EA", end_color="E6F4EA", fill_type="solid")
+        accept_font = Font(color="137333", bold=True)
+        reject_fill = PatternFill(start_color="FCE8E6", end_color="FCE8E6", fill_type="solid")
+        reject_font = Font(color="C5221F", bold=True)
+        suspicious_fill = PatternFill(start_color="FEF7E0", end_color="FEF7E0", fill_type="solid")
+        suspicious_font = Font(color="EA8600", bold=True)
+        
+        present_font = Font(color="137333", bold=True)
+        missing_font = Font(color="C5221F", bold=True)
+        
+        thin_border = Border(left=Side(style='thin', color='E0E0E0'),
+                             right=Side(style='thin', color='E0E0E0'),
+                             top=Side(style='thin', color='E0E0E0'),
+                             bottom=Side(style='thin', color='E0E0E0'))
+
+        # 1. Style Header Row
+        for cell in worksheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = center_align
+            cell.border = thin_border
+            
+        # 2. Style Data Rows
+        for row_idx, row in enumerate(worksheet.iter_rows(min_row=2, max_row=worksheet.max_row, min_col=1, max_col=worksheet.max_column), start=2):
+            for col_idx, cell in enumerate(row):
+                cell.border = thin_border
+                
+                # Center align everything except Category and Notes
+                if col_idx not in [1, 10]:
+                    cell.alignment = center_align
+                else:
+                    cell.alignment = Alignment(vertical="center", wrap_text=(col_idx == 10))
+                
+                value = str(cell.value) if cell.value else ""
+                
+                # Verdict column styling (Col C / idx 2)
+                if col_idx == 2:
+                    if value == 'ACCEPTED':
+                        cell.fill = accept_fill
+                        cell.font = accept_font
+                    elif value == 'REJECTED':
+                        cell.fill = reject_fill
+                        cell.font = reject_font
+                    elif value == 'SUSPICIOUS':
+                        cell.fill = suspicious_fill
+                        cell.font = suspicious_font
+                        
+                # Document Checklist Styling
+                elif col_idx in [3, 4, 5, 6, 7]:
+                    if value == 'PRESENT':
+                        cell.font = present_font
+                    elif value == 'MISSING':
+                        cell.font = missing_font
+
+        # 3. Auto-adjust Column Widths
         for idx, col in enumerate(df.columns):
-            max_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
-            worksheet.column_dimensions[chr(65 + idx)].width = max_len
+            col_letter = chr(65 + idx)
+            max_len = max(df[col].astype(str).map(len).max(), len(col)) + 4
+            if col == 'Notes / Reason' and max_len > 45:
+                max_len = 45 # Cap notes width
+            worksheet.column_dimensions[col_letter].width = max_len
             
     return output.getvalue()
 
