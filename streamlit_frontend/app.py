@@ -1246,6 +1246,7 @@ print(filedialog.askdirectory(master=root, title='Select Ticket Folder'))
             result = run_ticket_validation(uploaded_files, ticket_id)
 
         if result:
+            update_forensic_stats(result)
             update_pipeline(len(pipeline_steps))
             st.session_state.ticket_result = result
             with st.expander("🔧 Debug — Raw API Response", expanded=False):
@@ -1703,17 +1704,32 @@ def display_ticket_results(result):
             unsafe_allow_html=True
         )
 
-    # CSV Export
-    csv = generate_ticket_csv(result)
+    # CSV & Excel Export
     from datetime import datetime
-    date_str = datetime.now().strftime("%Y%m%d")
-    st.download_button(
-        label="⬇ Export CSV Report",
-        data=csv.encode('utf-8'),
-        file_name=f"ticket_{ticket_id}_{date_str}.csv",
-        mime="text/csv",
-        key=f"csv_{ticket_id}"
-    )
+    date_str = datetime.now().strftime("%Y%m%d_%H%M")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        csv = generate_ticket_csv(result)
+        st.download_button(
+            label="⬇ Export CSV Report",
+            data=csv.encode('utf-8'),
+            file_name=f"ticket_{ticket_id}_{date_str}.csv",
+            mime="text/csv",
+            key=f"csv_{ticket_id}",
+            use_container_width=True
+        )
+        
+    with col2:
+        excel_bytes = generate_batch_excel([result])
+        st.download_button(
+            label="⬇ Export Excel Report",
+            data=excel_bytes,
+            file_name=f"ticket_{ticket_id}_{date_str}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"excel_{ticket_id}",
+            use_container_width=True
+        )
 
 # --- PART 11 — CSV GENERATION ---
 def generate_ticket_csv(result):
@@ -1790,26 +1806,6 @@ def group_files_by_ticket(uploaded_files):
     return ticket_groups, invalid_files, batch_name
 
 def show_batch_tickets():
-    st.markdown("""
-    <div style='background:var(--info-bg);
-    border-left:4px solid var(--info-border);
-    border-radius:0 8px 8px 0;
-    padding:14px 16px;margin-bottom:16px'>
-    <b style='color:var(--text-main)'>
-    📁 How to upload batch folder:
-    </b><br>
-    <span style='color:var(--text-muted);font-size:13px'>
-    1. Click Browse files below<br>
-    2. Navigate to your batch folder<br>
-    3. Select ALL files inside
-       (use Ctrl+A to select all)<br>
-    4. Files from all ticket subfolders
-       will be auto-detected by their
-       10 digit folder names
-    </span>
-    </div>
-    """, unsafe_allow_html=True)
-
     batch_files = []
     
     if st.button("📁 Browse for Batch Folder", type="primary"):
@@ -2030,6 +2026,8 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
                 overall_progress.progress((i+1)/total)
 
             current_status.success(f"✅ Batch complete — {total} tickets processed")
+            for _r in all_results:
+                update_forensic_stats(_r)
             st.session_state.batch_results = all_results
 
     # Section 4 - Summary
@@ -2923,191 +2921,290 @@ def get_audit_logs():
             continue
     return []
 
+# --- STATS PERSISTENCE ---
+_STATS_FILE = os.path.join(os.path.dirname(__file__), 'data', 'forensic_stats.json')
+
+def _load_stats():
+    if os.path.exists(_STATS_FILE):
+        try:
+            with open(_STATS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            pass
+    return {
+        'total_tickets': 0, 'accepted': 0, 'rejected': 0, 'suspicious': 0,
+        'doc_type_counts': {'INVESTIGATION':0,'INVOICE':0,'ESTIMATION':0,'REJECTION':0,'IMAGE':0},
+        'daily_counts': {}, 'recent_flags': []
+    }
+
+def _save_stats(s):
+    os.makedirs(os.path.dirname(_STATS_FILE), exist_ok=True)
+    with open(_STATS_FILE, 'w') as f:
+        json.dump(s, f, indent=2)
+
+def update_forensic_stats(result):
+    if not result:
+        return
+    s = _load_stats()
+    verdict = result.get('verdict', '')
+    s['total_tickets'] += 1
+    if verdict == 'ACCEPTED':   s['accepted'] += 1
+    elif verdict == 'REJECTED':  s['rejected'] += 1
+    elif verdict == 'SUSPICIOUS': s['suspicious'] += 1
+    for f in result.get('detected_files', []):
+        ftype = f.get('type', 'OTHER')
+        if ftype in s['doc_type_counts']:
+            s['doc_type_counts'][ftype] += 1
+    today = datetime.now().strftime('%Y-%m-%d')
+    s['daily_counts'][today] = s['daily_counts'].get(today, 0) + 1
+    if verdict in ('REJECTED', 'SUSPICIOUS'):
+        flag = {
+            'ticket_id': result.get('ticket_id', ''),
+            'verdict': verdict,
+            'reason': result.get('reason', ''),
+            'category': result.get('category', ''),
+            'time': datetime.now().strftime('%d %b %H:%M')
+        }
+        s['recent_flags'] = ([flag] + s['recent_flags'])[:20]
+    _save_stats(s)
+
 # --- EXTENDED MODULE PANELS ---
 def show_dashboard():
+
     theme = st.session_state.theme
-    
+    s = _load_stats()
+    theme = st.session_state.theme
+
     if theme == 'dark':
         header_bg = "linear-gradient(135deg, #0d1526, #16223f)"
-        border_color = "#1a2744"
-        text_primary = "#ffffff"
-        text_secondary = "#8aa4c0"
-        card_bg = "#0d1526"
-        grid_color = "#1a2744"
-        card_shadow = "0 8px 24px rgba(0,0,0,0.4)"
+        border_color = "#1a2744"; text_primary = "#ffffff"
+        text_secondary = "#8aa4c0"; card_bg = "#0d1526"
+        grid_color = "#1a2744"; card_shadow = "0 8px 24px rgba(0,0,0,0.4)"
         chart_title_color = "#00d4aa"
     else:
         header_bg = "linear-gradient(135deg, #ffffff, #f1f5f9)"
-        border_color = "#e2e8f0"
-        text_primary = "#0f172a"
-        text_secondary = "#64748b"
-        card_bg = "#ffffff"
-        grid_color = "#e2e8f0"
-        card_shadow = "0 8px 24px rgba(148, 163, 184, 0.15)"
+        border_color = "#e2e8f0"; text_primary = "#0f172a"
+        text_secondary = "#64748b"; card_bg = "#ffffff"
+        grid_color = "#e2e8f0"; card_shadow = "0 8px 24px rgba(148,163,184,0.15)"
         chart_title_color = "#00b894"
 
+    total   = s['total_tickets']
+    accepted  = s['accepted']
+    rejected  = s['rejected']
+    suspicious = s['suspicious']
+    integrity_pct = round((accepted / total * 100), 1) if total > 0 else 0
+    reject_pct  = round((rejected / total * 100), 1) if total > 0 else 0
+
+    # --- Header ---
+    now_str = datetime.now().strftime("%d %b %Y, %H:%M")
     st.markdown(f"""
-    <div style='background: {header_bg};
-    border: 1px solid {border_color};
-    border-radius: 16px; padding: 24px;
-    margin-bottom: 24px; box-shadow: {card_shadow}'>
-        <div style='display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;'>
+    <div style='background:{header_bg};border:1px solid {border_color};
+    border-radius:16px;padding:24px;margin-bottom:24px;box-shadow:{card_shadow}'>
+        <div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px'>
             <div>
-                <h1 style='margin: 0; font-size: 26px; font-weight: 800; background: linear-gradient(to right, #00d4aa, #00b894); -webkit-background-clip: text; -webkit-text-fill-color: transparent;'>
+                <h1 style='margin:0;font-size:26px;font-weight:800;
+                background:linear-gradient(to right,#00d4aa,#00b894);
+                -webkit-background-clip:text;-webkit-text-fill-color:transparent'>
                     Forensic Operations Dashboard
                 </h1>
-                <p style='color: {text_secondary}; font-size: 13px; margin: 4px 0 0 0; font-weight: 500'>
-                    Verentis real-time forensic scanning status and operations metrics
+                <p style='color:{text_secondary};font-size:13px;margin:4px 0 0 0;font-weight:500'>
+                    Live metrics from your document validation sessions &nbsp;·&nbsp; Updated {now_str}
                 </p>
             </div>
-            <div style='background: rgba(0, 212, 170, 0.1); border: 1px solid rgba(0, 212, 170, 0.2); padding: 6px 14px; border-radius: 20px;'>
-                <span style='color: #00d4aa; font-weight: 700; font-size: 11px;'>🛰️ SECURE CHANNEL RUNNING</span>
+            <div style='display:flex;gap:10px;align-items:center'>
+                <div style='background:rgba(0,212,170,0.1);border:1px solid rgba(0,212,170,0.2);
+                padding:6px 14px;border-radius:20px'>
+                    <span style='color:#00d4aa;font-weight:700;font-size:11px'>🛰️ SYSTEM LIVE</span>
+                </div>
             </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Grid of Metrics
-    st.markdown(f"""
-    <div style='display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;'>
-        <!-- Card 1 -->
-        <div style='background: {card_bg}; border: 1px solid {border_color}; border-radius: 12px; padding: 18px; box-shadow: {card_shadow}'>
-            <div style='color: {text_secondary}; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;'>Total Scanned</div>
-            <div style='font-size: 28px; font-weight: 800; color: {text_primary}; margin: 6px 0;'>1,420 <span style='font-size: 14px; font-weight: 500; color: {text_secondary};'>Docs</span></div>
-            <div style='color: #00d4aa; font-size: 11px; font-weight: 700;'>⚡ +18.4% <span style='color: {text_secondary}; font-weight: 500;'>this week</span></div>
-        </div>
-        <!-- Card 2 -->
-        <div style='background: {card_bg}; border: 1px solid {border_color}; border-radius: 12px; padding: 18px; box-shadow: {card_shadow}'>
-            <div style='color: {text_secondary}; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;'>Verified Clean</div>
-            <div style='font-size: 28px; font-weight: 800; color: #00d4aa; margin: 6px 0;'>1,184 <span style='font-size: 14px; font-weight: 500; color: {text_secondary};'>Docs</span></div>
-            <div style='color: #00d4aa; font-size: 11px; font-weight: 700;'>▲ 93.4% <span style='color: {text_secondary}; font-weight: 500;'>integrity</span></div>
-        </div>
-        <!-- Card 3 -->
-        <div style='background: {card_bg}; border: 1px solid {border_color}; border-radius: 12px; padding: 18px; box-shadow: {card_shadow}'>
-            <div style='color: {text_secondary}; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;'>Discrepancies / Fakes</div>
-            <div style='font-size: 28px; font-weight: 800; color: #ff4757; margin: 6px 0;'>142 <span style='font-size: 14px; font-weight: 500; color: {text_secondary};'>Cases</span></div>
-            <div style='color: #ff4757; font-size: 11px; font-weight: 700;'>▼ -12.5% <span style='color: {text_secondary}; font-weight: 500;'>improvement</span></div>
-        </div>
-        <!-- Card 4 -->
-        <div style='background: {card_bg}; border: 1px solid {border_color}; border-radius: 12px; padding: 18px; box-shadow: {card_shadow}'>
-            <div style='color: {text_secondary}; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;'>System Accuracy</div>
-            <div style='font-size: 28px; font-weight: 800; color: #3b82f6; margin: 6px 0;'>99.8%</div>
-            <div style='color: #3b82f6; font-size: 11px; font-weight: 700;'>▲ 0.2% <span style='color: {text_secondary}; font-weight: 500;'>confidence</span></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
+    # --- KPI Cards ---
+    st.markdown(f"""
+    <div style='display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px'>
+        <div style='background:{card_bg};border:1px solid {border_color};border-radius:14px;
+        padding:20px;box-shadow:{card_shadow}'>
+            <div style='color:{text_secondary};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em'>Total Scanned</div>
+            <div style='font-size:32px;font-weight:800;color:{text_primary};margin:8px 0'>
+                {total:,} <span style='font-size:14px;font-weight:500;color:{text_secondary}'>Tickets</span>
+            </div>
+            <div style='color:#00d4aa;font-size:12px;font-weight:700'>⚡ Live counter</div>
+        </div>
+        <div style='background:{card_bg};border:1px solid {border_color};border-radius:14px;
+        padding:20px;box-shadow:{card_shadow}'>
+            <div style='color:{text_secondary};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em'>Accepted Clean</div>
+            <div style='font-size:32px;font-weight:800;color:#00d4aa;margin:8px 0'>
+                {accepted:,} <span style='font-size:14px;font-weight:500;color:{text_secondary}'>Docs</span>
+            </div>
+            <div style='color:#00d4aa;font-size:12px;font-weight:700'>▲ {integrity_pct}% integrity rate</div>
+        </div>
+        <div style='background:{card_bg};border:1px solid {border_color};border-radius:14px;
+        padding:20px;box-shadow:{card_shadow}'>
+            <div style='color:{text_secondary};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em'>Rejected / Flags</div>
+            <div style='font-size:32px;font-weight:800;color:#ff4757;margin:8px 0'>
+                {rejected:,} <span style='font-size:14px;font-weight:500;color:{text_secondary}'>Cases</span>
+            </div>
+            <div style='color:#ff4757;font-size:12px;font-weight:700'>▼ {reject_pct}% of total</div>
+        </div>
+        <div style='background:{card_bg};border:1px solid {border_color};border-radius:14px;
+        padding:20px;box-shadow:{card_shadow}'>
+            <div style='color:{text_secondary};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em'>Suspicious</div>
+            <div style='font-size:32px;font-weight:800;color:#ffa502;margin:8px 0'>
+                {suspicious:,} <span style='font-size:14px;font-weight:500;color:{text_secondary}'>Reviews</span>
+            </div>
+            <div style='color:#ffa502;font-size:12px;font-weight:700'>⚠ Manual review needed</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- Charts Row ---
     col1, col2 = st.columns(2)
+
     with col1:
-        st.markdown(f"""
-        <div style='background: {card_bg}; border: 1px solid {border_color}; border-radius: 14px; padding: 20px; box-shadow: {card_shadow}; margin-bottom: 20px'>
-            <h3 style='margin: 0 0 16px 0; font-size: 16px; font-weight: 700; color: {chart_title_color}'>📈 Daily Processing Load</h3>
+        st.markdown(f"""<div style='background:{card_bg};border:1px solid {border_color};
+        border-radius:14px;padding:20px;box-shadow:{card_shadow}'>
+        <h3 style='margin:0 0 4px 0;font-size:16px;font-weight:700;color:{chart_title_color}'>
+        🍩 Verdict Distribution</h3>
+        <p style='color:{text_secondary};font-size:12px;margin:0 0 12px 0'>Real-time breakdown of all ticket verdicts</p>
         """, unsafe_allow_html=True)
-        
-        df = pd.DataFrame({
-            'Day': ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-            'Volume': [120, 150, 180, 220, 190, 80, 45]
-        })
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=df['Day'], 
-            y=df['Volume'], 
-            mode='lines+markers',
-            line=dict(color='#00d4aa', width=3, shape='spline'),
-            marker=dict(size=8, color='#00d4aa', line=dict(width=2, color=card_bg)),
-            fill='tozeroy',
-            fillcolor='rgba(0, 212, 170, 0.08)',
-            name='Docs Scanned'
-        ))
-        
-        fig.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            margin=dict(l=10, r=10, t=10, b=10),
-            xaxis=dict(
-                showgrid=True, gridcolor=grid_color, 
-                tickfont=dict(color=text_secondary, size=11),
-                showline=False
-            ),
-            yaxis=dict(
-                showgrid=True, gridcolor=grid_color, 
-                tickfont=dict(color=text_secondary, size=11),
-                showline=False
-            ),
-            hovermode='x unified',
-            height=280
-        )
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+        if total > 0:
+            fig_donut = go.Figure(data=[go.Pie(
+                labels=['Accepted', 'Rejected', 'Suspicious'],
+                values=[accepted, rejected, suspicious],
+                hole=0.62,
+                marker=dict(colors=['#00d4aa', '#ff4757', '#ffa502']),
+                textinfo='percent', hoverinfo='label+value+percent',
+                textfont=dict(size=11, color='#ffffff')
+            )])
+            fig_donut.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=10,r=10,t=10,b=10), height=260,
+                legend=dict(orientation='h', y=-0.15, x=0.5, xanchor='center',
+                            font=dict(color=text_secondary, size=10)),
+                annotations=[dict(text=f'<b>{total}</b><br>Total', x=0.5, y=0.5,
+                                  font=dict(size=14, color=text_primary), showarrow=False)]
+            )
+            st.plotly_chart(fig_donut, use_container_width=True, config={'displayModeBar': False})
+        else:
+            st.info("No data yet. Process some tickets to see the verdict distribution!")
         st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
-        st.markdown(f"""
-        <div style='background: {card_bg}; border: 1px solid {border_color}; border-radius: 14px; padding: 20px; box-shadow: {card_shadow}; margin-bottom: 20px'>
-            <h3 style='margin: 0 0 16px 0; font-size: 16px; font-weight: 700; color: {chart_title_color}'>🍩 Document Classification</h3>
+        st.markdown(f"""<div style='background:{card_bg};border:1px solid {border_color};
+        border-radius:14px;padding:20px;box-shadow:{card_shadow}'>
+        <h3 style='margin:0 0 4px 0;font-size:16px;font-weight:700;color:{chart_title_color}'>
+        📊 Document Types Processed</h3>
+        <p style='color:{text_secondary};font-size:12px;margin:0 0 12px 0'>Count of each document type found across all uploads</p>
         """, unsafe_allow_html=True)
-        
-        df_pie = pd.DataFrame({
-            'Category': ['Investigation', 'Invoice', 'Estimation', 'Rejection', 'Identity Cards'],
-            'Count': [450, 320, 210, 140, 300]
-        })
-        
-        fig_pie = go.Figure(data=[go.Pie(
-            labels=df_pie['Category'],
-            values=df_pie['Count'],
-            hole=.6,
-            marker=dict(colors=['#00d4aa', '#3b82f6', '#ffa502', '#ff4757', '#64748b']),
-            textinfo='percent',
-            hoverinfo='label+value',
-            textfont=dict(size=11, color='#ffffff')
+
+        doc_counts = s.get('doc_type_counts', {})
+        doc_labels = list(doc_counts.keys())
+        doc_values = list(doc_counts.values())
+        doc_colors = ['#00d4aa', '#3b82f6', '#ffa502', '#ff4757', '#00b894']
+
+        fig_bar = go.Figure(data=[go.Bar(
+            x=doc_labels, y=doc_values,
+            marker=dict(color=doc_colors[:len(doc_labels)], cornerradius=6),
+            hovertemplate='<b>%{x}</b><br>%{y} docs<extra></extra>'
         )])
-        
-        fig_pie.update_layout(
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            margin=dict(l=10, r=10, t=10, b=10),
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=-0.2,
-                xanchor="center",
-                x=0.5,
-                font=dict(color=text_secondary, size=10)
-            ),
-            height=280
+        fig_bar.update_layout(
+            plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+            margin=dict(l=10,r=10,t=10,b=10), height=260,
+            xaxis=dict(showgrid=False, tickfont=dict(color=text_secondary, size=10)),
+            yaxis=dict(showgrid=True, gridcolor=grid_color,
+                       tickfont=dict(color=text_secondary, size=10))
         )
-        st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': False})
+        st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Live activity feed at bottom
-    st.markdown(f"""
-    <div style='background: {card_bg}; border: 1px solid {border_color}; border-radius: 14px; padding: 20px; box-shadow: {card_shadow}'>
-        <h3 style='margin: 0 0 16px 0; font-size: 16px; font-weight: 700; color: {chart_title_color}'>📡 Live Forensic Scan Timeline</h3>
-        <div style='display: flex; flex-direction: column; gap: 12px;'>
-            <div style='display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid {grid_color}'>
-                <div style='display: flex; align-items: center; gap: 12px;'>
-                    <span style='background: rgba(0, 212, 170, 0.1); color: #00d4aa; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; font-family: monospace;'>VERIFIED</span>
-                    <span style='color: {text_primary}; font-size: 13px; font-weight: 600;'>Chassis signature validated for ticket #4092830193</span>
-                </div>
-                <span style='color: {text_secondary}; font-size: 11px;'>2 mins ago</span>
-            </div>
-            <div style='display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid {grid_color}'>
-                <div style='display: flex; align-items: center; gap: 12px;'>
-                    <span style='background: rgba(0, 212, 170, 0.1); color: #00d4aa; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; font-family: monospace;'>VERIFIED</span>
-                    <span style='color: {text_primary}; font-size: 13px; font-weight: 600;'>Invoice subtotal + GST matches Total (₹4,235.00)</span>
-                </div>
-                <span style='color: {text_secondary}; font-size: 11px;'>14 mins ago</span>
-            </div>
-            <div style='display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid {grid_color}'>
-                <div style='display: flex; align-items: center; gap: 12px;'>
-                    <span style='background: rgba(255, 71, 87, 0.1); color: #ff4757; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; font-family: monospace;'>ALERT</span>
-                    <span style='color: {text_primary}; font-size: 13px; font-weight: 600;'>Duplicate invoice detected in folder #4012938491</span>
-                </div>
-                <span style='color: {text_secondary}; font-size: 11px;'>35 mins ago</span>
-            </div>
-        </div>
-    </div>
+    # --- Daily Processing Load ---
+    st.markdown(f"""<div style='background:{card_bg};border:1px solid {border_color};
+    border-radius:14px;padding:20px;box-shadow:{card_shadow};margin-top:20px'>
+    <h3 style='margin:0 0 4px 0;font-size:16px;font-weight:700;color:{chart_title_color}'>
+    📈 Daily Processing Load</h3>
+    <p style='color:{text_secondary};font-size:12px;margin:0 0 12px 0'>Tickets processed per day (last 7 days)</p>
     """, unsafe_allow_html=True)
+
+    daily = s.get('daily_counts', {})
+    days = [(datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(6, -1, -1)]
+    day_labels = [(datetime.now() - timedelta(days=i)).strftime('%d %b') for i in range(6, -1, -1)]
+    day_values = [daily.get(d, 0) for d in days]
+
+    fig_line = go.Figure()
+    fig_line.add_trace(go.Scatter(
+        x=day_labels, y=day_values, mode='lines+markers',
+        line=dict(color='#00d4aa', width=3, shape='spline'),
+        marker=dict(size=8, color='#00d4aa', line=dict(width=2, color=card_bg)),
+        fill='tozeroy', fillcolor='rgba(0,212,170,0.08)', name='Tickets'
+    ))
+    fig_line.update_layout(
+        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        margin=dict(l=10,r=10,t=10,b=10), height=220, hovermode='x unified',
+        xaxis=dict(showgrid=False, tickfont=dict(color=text_secondary, size=11)),
+        yaxis=dict(showgrid=True, gridcolor=grid_color,
+                   tickfont=dict(color=text_secondary, size=11))
+    )
+    st.plotly_chart(fig_line, use_container_width=True, config={'displayModeBar': False})
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # --- Recent Threat Flags ---
+    st.markdown(f"""<div style='background:{card_bg};border:1px solid {border_color};
+    border-radius:14px;padding:20px;box-shadow:{card_shadow};margin-top:20px'>
+    <h3 style='margin:0 0 4px 0;font-size:16px;font-weight:700;color:#ff4757'>
+    🚨 Recent Threat Flags</h3>
+    <p style='color:{text_secondary};font-size:12px;margin:0 0 16px 0'>Last rejected or suspicious tickets from your uploads</p>
+    """, unsafe_allow_html=True)
+
+    flags = s.get('recent_flags', [])
+    if flags:
+        for flag in flags[:8]:
+            v = flag.get('verdict', '')
+            flag_color = '#ff4757' if v == 'REJECTED' else '#ffa502'
+            badge = 'REJECTED' if v == 'REJECTED' else 'SUSPICIOUS'
+            reason_text = flag.get('reason', '') or 'No reason provided'
+            st.markdown(f"""
+            <div style='display:flex;align-items:center;justify-content:space-between;
+            padding:12px;margin-bottom:8px;border-radius:10px;
+            background:rgba(255,71,87,0.06) if v=="REJECTED" else rgba(255,165,2,0.06);
+            border:1px solid {flag_color}22'>
+                <div style='display:flex;align-items:center;gap:12px'>
+                    <span style='background:{flag_color}22;color:{flag_color};
+                    padding:4px 10px;border-radius:6px;font-size:11px;
+                    font-weight:700;font-family:monospace;min-width:80px;text-align:center'>{badge}</span>
+                    <div>
+                        <div style='color:{text_primary};font-size:13px;font-weight:700'>
+                            Ticket #{flag.get("ticket_id","—")}
+                            <span style='color:{text_secondary};font-size:11px;font-weight:400;margin-left:8px'>
+                            {flag.get("category","")}</span>
+                        </div>
+                        <div style='color:{text_secondary};font-size:12px;margin-top:2px'>{reason_text[:90]}</div>
+                    </div>
+                </div>
+                <span style='color:{text_secondary};font-size:11px;white-space:nowrap;margin-left:12px'>{flag.get("time","")}</span>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div style='text-align:center;padding:32px;color:{text_secondary};font-size:13px'>
+            ✅ No threats flagged yet. Process some batch folders to populate this feed.
+        </div>""", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # --- Reset button ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🗑️ Reset Dashboard Stats", key="reset_dash_stats"):
+        _save_stats({
+            'total_tickets': 0, 'accepted': 0, 'rejected': 0, 'suspicious': 0,
+            'doc_type_counts': {'INVESTIGATION':0,'INVOICE':0,'ESTIMATION':0,'REJECTION':0,'IMAGE':0},
+            'daily_counts': {}, 'recent_flags': []
+        })
+        st.success("Dashboard stats cleared.")
+        st.rerun()
+
+
 
 def show_threat_intelligence():
     theme = st.session_state.theme

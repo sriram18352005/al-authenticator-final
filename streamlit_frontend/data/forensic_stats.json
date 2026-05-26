@@ -1,0 +1,32 @@
+{
+  "total_tickets": 8,
+  "accepted": 6,
+  "rejected": 1,
+  "suspicious": 1,
+  "doc_type_counts": {
+    "INVESTIGATION": 8,
+    "INVOICE": 5,
+    "ESTIMATION": 3,
+    "REJECTION": 3,
+    "IMAGE": 0
+  },
+  "daily_counts": {
+    "2026-05-26": 8
+  },
+  "recent_flags": [
+    {
+      "ticket_id": "4569871235",
+      "verdict": "SUSPICIOUS",
+      "reason": "Duplicate files detected in document cluster.",
+      "category": "PAID / REJECTED",
+      "time": "26 May 15:39"
+    },
+    {
+      "ticket_id": "4578102963",
+      "verdict": "REJECTED",
+      "reason": "Required document patterns missing from cluster. (Note: 1 blank file(s) were excluded from validation)",
+      "category": "UNKNOWN",
+      "time": "26 May 15:38"
+    }
+  ]
+}
