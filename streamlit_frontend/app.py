@@ -330,92 +330,131 @@ def get_user_role(username):
 def show_login():
     st.markdown("""
     <style>
-    .stApp {
-        background-color: #f0f2f5 !important;
-    }
+    .stApp,[data-testid="stAppViewContainer"],html,body{background-color:#0a0f1e !important;}
+    [data-testid="stHeader"]{background:transparent !important;}
+    div[data-testid="stDecoration"]{display:none !important;}
+    .main .block-container{padding-top:0 !important;padding-bottom:0 !important;max-width:100% !important;}
     </style>
     """, unsafe_allow_html=True)
 
     if st.session_state.page == 'register':
         show_registration_page()
+        return
     elif st.session_state.page == 'forgot_password':
         show_forgot_password_page()
-    else:
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.markdown("""
-            <div style='background:#ffffff;
-            border:1px solid #e0e8f0;
-            border-radius:16px;padding:40px;
-            margin-top:60px;
-            box-shadow:0 4px 24px rgba(0,0,0,0.08)'>
-            <div style='text-align:center;
-            margin-bottom:24px'>
-            <div style='background:#1a1a2e;
-            color:#00d4aa;width:48px;height:48px;
-            border-radius:12px;display:inline-flex;
-            align-items:center;justify-content:center;
-            font-size:24px;font-weight:800;
-            margin-bottom:16px'>V</div>
-            <h2 style='color:#0a0f1e;font-weight:800;
-            margin:0 0 4px 0'>Verentis Gateway</h2>
-            <p style='color:#546e7a;font-size:14px;
-            margin:0'>Secure Forensic Authentication</p>
-            </div>
-            </div>
-            """, unsafe_allow_html=True)
+        return
 
-            with st.form("login_form"):
-                st.markdown(
-                    "<p style='color:#1a1a2e;"
-                    "font-weight:600;font-size:13px;"
-                    "margin-bottom:4px'>Operator ID</p>",
-                    unsafe_allow_html=True
-                )
-                username = st.text_input(
-                    "Email",
-                    placeholder="operator@verentis.com",
-                    label_visibility="collapsed"
-                )
-                st.markdown(
-                    "<p style='color:#1a1a2e;"
-                    "font-weight:600;font-size:13px;"
-                    "margin-bottom:4px;margin-top:12px'>"
-                    "Access Token</p>",
-                    unsafe_allow_html=True
-                )
-                password = st.text_input(
-                    "Password",
-                    type="password",
-                    placeholder="Enter access token",
-                    label_visibility="collapsed"
-                )
-                submitted = st.form_submit_button(
-                    "Authenticate System",
-                    use_container_width=True
-                )
+    left_col, right_col = st.columns([1.15, 0.85], gap="small")
 
-            if submitted:
-                if authenticate_user(username, password):
-                    st.session_state.logged_in = True
-                    st.session_state.username = username
-                    st.session_state.user_name = get_user_name(username)
-                    st.session_state.user_role = get_user_role(username)
-                    st.session_state.user_email = username
-                    st.session_state.page = 'dashboard'
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials. Please try again.")
+    with left_col:
+        left_html = (
+"<div style='background:linear-gradient(160deg,#0d1f3c 0%,#0a1628 60%,#061020 100%);"
+"padding:64px 48px;border-right:1px solid #1a2744;min-height:96vh'>"
+"<div style='display:flex;align-items:center;gap:14px;margin-bottom:48px'>"
+"<div style='background:linear-gradient(135deg,#00d4aa,#00b894);width:48px;height:48px;"
+"border-radius:14px;display:flex;align-items:center;justify-content:center;"
+"font-size:22px;font-weight:900;color:#0a0f1e'>V</div>"
+"<div><div style='color:#fff;font-size:21px;font-weight:800;letter-spacing:.02em'>VERENTIS</div>"
+"<div style='color:#00d4aa;font-size:10px;letter-spacing:.18em;font-weight:600'>FORENSIC INTELLIGENCE PLATFORM</div></div>"
+"</div>"
+"<h1 style='color:#fff;font-size:34px;font-weight:900;line-height:1.25;margin:0 0 16px 0'>"
+"Secure Document<br>"
+"<span style='background:linear-gradient(90deg,#00d4aa,#3b82f6);"
+"-webkit-background-clip:text;-webkit-text-fill-color:transparent'>Forensic Validation</span></h1>"
+"<p style='color:#8aa4c0;font-size:14px;line-height:1.75;margin:0 0 40px 0;max-width:400px'>"
+"Verentis is an AI-powered document authentication platform built for insurance "
+"and claims forensics. It automatically detects fraud, validates vehicle chassis "
+"numbers, and cross-checks supporting documents in seconds.</p>"
+"<div style='display:flex;flex-direction:column;gap:14px;margin-bottom:44px'>"
+"<div style='display:flex;align-items:center;gap:14px'>"
+"<div style='background:rgba(0,212,170,.12);border:1px solid rgba(0,212,170,.25);"
+"width:38px;height:38px;border-radius:10px;display:flex;align-items:center;"
+"justify-content:center;font-size:24px'>&#128269;</div>"
+"<div><div style='color:#fff;font-size:13px;font-weight:700'>AI-Powered OCR Extraction</div>"
+"<div style='color:#8aa4c0;font-size:12px'>Reads and parses all document types automatically</div></div></div>"
+"<div style='display:flex;align-items:center;gap:14px'>"
+"<div style='background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.25);"
+"width:38px;height:38px;border-radius:10px;display:flex;align-items:center;"
+"justify-content:center;font-size:24px'>&#128737;</div>"
+"<div><div style='color:#fff;font-size:13px;font-weight:700'>Duplicate &amp; Fraud Detection</div>"
+"<div style='color:#8aa4c0;font-size:12px'>Flags identical or tampered documents across batches</div></div></div>"
+"<div style='display:flex;align-items:center;gap:14px'>"
+"<div style='background:rgba(255,165,2,.12);border:1px solid rgba(255,165,2,.25);"
+"width:38px;height:38px;border-radius:10px;display:flex;align-items:center;"
+"justify-content:center;font-size:24px'>&#128663;</div>"
+"<div><div style='color:#fff;font-size:13px;font-weight:700'>VIN / Chassis Verification</div>"
+"<div style='color:#8aa4c0;font-size:12px'>Validates vehicle identity against WMI standards</div></div></div>"
+"<div style='display:flex;align-items:center;gap:14px'>"
+"<div style='background:rgba(0,212,170,.12);border:1px solid rgba(0,212,170,.25);"
+"width:38px;height:38px;border-radius:10px;display:flex;align-items:center;"
+"justify-content:center;font-size:24px'>&#128202;</div>"
+"<div><div style='color:#fff;font-size:13px;font-weight:700'>Real-Time Operations Dashboard</div>"
+"<div style='color:#8aa4c0;font-size:12px'>Live forensic metrics updated after every upload</div></div></div>"
+"</div>"
+"<div style='display:flex;align-items:center;gap:10px;padding:12px 18px;"
+"background:rgba(0,212,170,.07);border:1px solid rgba(0,212,170,.18);border-radius:12px'>"
+"<div style='width:8px;height:8px;background:#00d4aa;border-radius:50%'></div>"
+"<span style='color:#00d4aa;font-size:12px;font-weight:700;letter-spacing:.05em'>ALL SYSTEMS OPERATIONAL</span>"
+"</div></div>"
+        )
+        st.markdown(left_html, unsafe_allow_html=True)
 
-            col_a, col_b = st.columns(2)
-            with col_a:
-                if st.button("Forgot Password?", use_container_width=True):
-                    st.session_state.page = 'forgot_password'
-                    st.rerun()
-            with col_b:
-                if st.button("Create Account", use_container_width=True):
-                    st.session_state.page = 'register'
-                    st.rerun()
+    with right_col:
+        st.markdown("<div style='height:8vh'></div>", unsafe_allow_html=True)
+
+        st.markdown("""
+        <div style='margin-bottom:28px;padding:0 4px'>
+            <div style='color:#ffffff;font-size:26px;font-weight:800;margin-bottom:6px'>Welcome back</div>
+            <div style='color:#8aa4c0;font-size:14px'>Sign in to your Verentis account to continue</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("login_form"):
+            st.markdown("<p style='color:#8aa4c0;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px'>Email Address</p>", unsafe_allow_html=True)
+            username = st.text_input(
+                "Email", placeholder="you@verentis.com",
+                label_visibility="collapsed"
+            )
+            st.markdown("<p style='color:#8aa4c0;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px;margin-top:14px'>Password</p>", unsafe_allow_html=True)
+            password = st.text_input(
+                "Password", type="password",
+                placeholder="Enter your password",
+                label_visibility="collapsed"
+            )
+            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+            submitted = st.form_submit_button("Sign In  →", use_container_width=True)
+
+        if submitted:
+            if authenticate_user(username, password):
+                st.session_state.logged_in = True
+                st.session_state.username = username
+                st.session_state.user_name = get_user_name(username)
+                st.session_state.user_role = 'User'
+                st.session_state.user_email = username
+                st.session_state.page = 'dashboard'
+                st.rerun()
+            else:
+                st.error("Incorrect email or password. Please try again.")
+
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("Forgot Password?", use_container_width=True):
+                st.session_state.page = 'forgot_password'
+                st.rerun()
+        with col_b:
+            if st.button("Create Account", use_container_width=True):
+                st.session_state.page = 'register'
+                st.rerun()
+
+        st.markdown("""
+        <div style='margin-top:32px;padding-top:20px;border-top:1px solid #1a2744;
+        text-align:center;color:#546e7a;font-size:11px'>
+        By signing in you agree to Verentis Terms of Service &amp; Privacy Policy
+        </div>
+        """, unsafe_allow_html=True)
+
+
 
 def show_registration_page():
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -610,20 +649,15 @@ def show_sidebar():
         st.markdown("---")
 
         # User profile
-        name = st.session_state.get(
-            'user_name', 'Operator'
-        )
-        role = st.session_state.get(
-            'user_role', 'Forensic Officer'
-        )
-        initial = name[0].upper() if name else 'O'
+        name = st.session_state.get('user_name', 'User')
+        initial = name[0].upper() if name else 'U'
         st.markdown(f"""
         <div style='padding:12px;
         background:#0d1f3c;border-radius:8px;
         margin-bottom:12px'>
         <div style='color:#8aa4c0;font-size:10px;
         letter-spacing:0.1em;margin-bottom:8px'>
-        OPERATOR</div>
+        SIGNED IN AS</div>
         <div style='display:flex;align-items:center;
         gap:10px'>
         <div style='background:#00d4aa;
@@ -635,8 +669,7 @@ def show_sidebar():
         <div>
         <div style='color:#ffffff;font-weight:600;
         font-size:13px'>{name}</div>
-        <div style='color:#8aa4c0;font-size:11px'>
-        {role}</div>
+        <div style='color:#8aa4c0;font-size:11px'>User</div>
         </div>
         </div>
         </div>
@@ -1187,6 +1220,7 @@ print(filedialog.askdirectory(master=root, title='Select Ticket Folder'))
     # Ticket ID Input Field (populated with detected folder name)
     st.markdown("**Ticket ID (Folder Name)**")
     
+    
     # Pre-populate session state if detected_folder_id is found
     if detected_folder_id and st.session_state.get("single_ticket_id_main") != detected_folder_id:
         st.session_state.single_ticket_id_main = detected_folder_id
@@ -1285,6 +1319,16 @@ def display_ticket_results(result):
     )
     extracted_texts = result.get(
         'extracted_texts', {}
+    )
+
+    verdict_icon = {'ACCEPTED':'✅','REJECTED':'❌','SUSPICIOUS':'⚠'}.get(verdict,'❓')
+    verdict_color = {'ACCEPTED':'#00d4aa','REJECTED':'#ff4757','SUSPICIOUS':'#ffa502'}.get(verdict,'#ffffff')
+    st.markdown(
+        f"<div style='padding:16px;background:#0d1526;border:1px solid #1a2744;border-radius:12px;margin-bottom:24px'>"
+        f"<h2 style='margin:0;color:#ffffff'>📄 Ticket ID: {ticket_id}</h2>"
+        f"<div style='margin-top:8px;font-size:16px;color:#8aa4c0'>"
+        f"<span style='color:{verdict_color};font-weight:700'>{verdict_icon} {verdict}</span> &nbsp;|&nbsp; {category}"
+        f"</div></div>", unsafe_allow_html=True
     )
 
     # Dynamic Pipeline steps status calculation
@@ -1414,7 +1458,7 @@ def display_ticket_results(result):
                     if is_dup else ""
                 )
                 st.markdown(
-                    f"📄 **{fi['name']}**"
+                    f"📄 **{ticket_id} - {fi['name']}**"
                     f"{dup_badge}"
                 )
             with col2:
@@ -2034,6 +2078,13 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
     if st.session_state.get('batch_results'):
         results = st.session_state.batch_results
 
+        if st.session_state.get('batch_elaborate_ticket'):
+            if st.button("⬅ Back to Batch Summary"):
+                st.session_state.batch_elaborate_ticket = None
+                st.rerun()
+            display_ticket_results(st.session_state.batch_elaborate_ticket)
+            return
+
         accepted = [r for r in results if r.get('verdict') == 'ACCEPTED']
         rejected = [r for r in results if r.get('verdict') == 'REJECTED']
         suspicious = [r for r in results if r.get('verdict') == 'SUSPICIOUS']
@@ -2169,8 +2220,16 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
                 'SUSPICIOUS':'⚠'
             }.get(verdict,'❓')
 
-            with st.expander(f"{verdict_icon} {tid} — {verdict} — {category}"):
-                reason = r.get('reason', '')
+            exp_col, btn_col = st.columns([0.92, 0.08])
+            with btn_col:
+                st.markdown("<div style='height:2px'></div>", unsafe_allow_html=True)
+                if st.button("🔍", key=f"elaborate_{tid}"):
+                    st.session_state.batch_elaborate_ticket = r
+                    st.rerun()
+
+            with exp_col:
+                with st.expander(f"{verdict_icon} {tid} — {verdict} — {category}"):
+                    reason = r.get('reason', '')
                 if verdict in ['SUSPICIOUS', 'REJECTED'] and reason:
                     color = '#ff4757' if verdict == 'REJECTED' else '#ffa502'
                     st.markdown(f"<div style='color:{color};font-weight:600;margin-bottom:12px;padding:8px;background:{color}11;border-radius:4px;border-left:4px solid {color}'>Reason: {reason}</div>", unsafe_allow_html=True)
@@ -2204,7 +2263,7 @@ print(filedialog.askdirectory(master=root, title='Select Batch Folder'))
                         dup_badge = "<span style='margin-left:8px;color:#ff4757;font-size:11px;font-weight:700'>🔴 DUPLICATE</span>" if is_dup else ""
                         
                         st.markdown(
-                            f"<span style='margin-right:8px'>📄 {fname}</span>"
+                            f"<span style='margin-right:8px'>📄 <b>{tid}</b> - {fname}</span>"
                             f"<span style='background:{color}22;color:{color};"
                             f"padding:2px 8px;border-radius:10px;font-size:11px;"
                             f"font-weight:600'>{ftype}</span> "
@@ -3002,9 +3061,7 @@ def show_dashboard():
     border-radius:16px;padding:24px;margin-bottom:24px;box-shadow:{card_shadow}'>
         <div style='display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px'>
             <div>
-                <h1 style='margin:0;font-size:26px;font-weight:800;
-                background:linear-gradient(to right,#00d4aa,#00b894);
-                -webkit-background-clip:text;-webkit-text-fill-color:transparent'>
+                <h1 style='margin:0;font-size:26px;font-weight:800;color:#00d4aa'>
                     Forensic Operations Dashboard
                 </h1>
                 <p style='color:{text_secondary};font-size:13px;margin:4px 0 0 0;font-weight:500'>

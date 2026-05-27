@@ -1,19 +1,83 @@
 {
-  "total_tickets": 8,
-  "accepted": 6,
+  "total_tickets": 46,
+  "accepted": 35,
   "rejected": 1,
-  "suspicious": 1,
+  "suspicious": 10,
   "doc_type_counts": {
-    "INVESTIGATION": 8,
-    "INVOICE": 5,
-    "ESTIMATION": 3,
-    "REJECTION": 3,
+    "INVESTIGATION": 55,
+    "INVOICE": 33,
+    "ESTIMATION": 21,
+    "REJECTION": 21,
     "IMAGE": 0
   },
   "daily_counts": {
-    "2026-05-26": 8
+    "2026-05-26": 39,
+    "2026-05-27": 7
   },
   "recent_flags": [
+    {
+      "ticket_id": "4569871235",
+      "verdict": "SUSPICIOUS",
+      "reason": "Duplicate files detected in document cluster.",
+      "category": "PAID / REJECTED",
+      "time": "27 May 09:40"
+    },
+    {
+      "ticket_id": "4569871235",
+      "verdict": "SUSPICIOUS",
+      "reason": "Duplicate files detected in document cluster.",
+      "category": "PAID / REJECTED",
+      "time": "26 May 17:18"
+    },
+    {
+      "ticket_id": "4569871235",
+      "verdict": "SUSPICIOUS",
+      "reason": "Duplicate files detected in document cluster.",
+      "category": "PAID / REJECTED",
+      "time": "26 May 17:15"
+    },
+    {
+      "ticket_id": "4569871235",
+      "verdict": "SUSPICIOUS",
+      "reason": "Duplicate files detected in document cluster.",
+      "category": "PAID / REJECTED",
+      "time": "26 May 17:12"
+    },
+    {
+      "ticket_id": "4569871235",
+      "verdict": "SUSPICIOUS",
+      "reason": "Duplicate files detected in document cluster.",
+      "category": "PAID / REJECTED",
+      "time": "26 May 17:10"
+    },
+    {
+      "ticket_id": "4569871235",
+      "verdict": "SUSPICIOUS",
+      "reason": "Duplicate files detected in document cluster.",
+      "category": "PAID / REJECTED",
+      "time": "26 May 17:08"
+    },
+    {
+      "ticket_id": "4569871235",
+      "verdict": "SUSPICIOUS",
+      "reason": "Duplicate files detected in document cluster.",
+      "category": "PAID / REJECTED",
+      "time": "26 May 17:01"
+    },
+    {
+      "ticket_id": "4569871235",
+      "verdict": "SUSPICIOUS",
+      "reason": "Duplicate files detected in document cluster.",
+      "category": "PAID / REJECTED",
+      "time": "26 May 16:25"
+    },
+    {
+      "ticket_id": "4569871235",
+      "verdict": "SUSPICIOUS",
+      "reason": "Duplicate files detected in document cluster.",
+      "category": "PAID / REJECTED",
+      "time": "26 May 16:09"
+    },
     {
       "ticket_id": "4569871235",
       "verdict": "SUSPICIOUS",
